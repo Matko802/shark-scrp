@@ -22,10 +22,15 @@ fn sanitize_filename(s: &str) -> String {
     let out = out.trim().trim_matches('.').to_string();
     // Collapse whitespace
     let out = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    // Limit to 100 chars (byte-safe for utf8)
+    // Limit by UTF-8 byte length (multi-byte chars like CJK count as several
+    // bytes; filesystem name limits are byte-based, usually 255).
+    // Keep room for the .mp4 suffix and yt-dlp's `.fdash-*.part` temp names.
+    const MAX_BYTES: usize = 180;
     let mut truncated = String::new();
-    for (i, c) in out.chars().enumerate() {
-        if i >= 100 { break; }
+    for c in out.chars() {
+        if truncated.len() + c.len_utf8() > MAX_BYTES {
+            break;
+        }
         truncated.push(c);
     }
     let truncated = truncated.trim().to_string();

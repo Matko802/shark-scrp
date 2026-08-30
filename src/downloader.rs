@@ -2,25 +2,46 @@ use anyhow::{bail, Result};
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+use std::process::Command;
 use tokio::io::AsyncWriteExt;
 use crate::ytdlp;
 
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 async fn download_via_ytdlp(url: &str, dest: &Path) -> Result<()> {
-    let dest_str = dest.to_string_lossy().to_string();
     let ytdlp_bin = ytdlp::ytdlp_path_async().await;
+    // yt-dlp writes `<out>.part` / `<out>.fdash-*.part` temp files next to the
+    // output. Long multi-byte titles (e.g. Japanese) can overflow the filesystem
+    // name limit, so download via a short temp name first, then move it there.
+    let parent = dest.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let tmp_name = format!("sharktmp_{}_{}.mp4", std::process::id(), rand::random::<u32>());
+    let tmp_path = parent.join(&tmp_name);
+    let tmp_str = tmp_path.to_string_lossy().to_string();
     let output = tokio::process::Command::new(&ytdlp_bin)
-        .args(["--no-warnings", "--no-playlist", "-o", &dest_str, url])
+        .args(["--no-warnings", "--no-playlist", "-o", &tmp_str, url])
         .output()
         .await?;
     if !output.status.success() {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("yt-dlp failed: {}", stderr.lines().next().unwrap_or("unknown"));
     }
-    let meta = tokio::fs::metadata(dest).await?;
+    let meta = tokio::fs::metadata(&tmp_path).await?;
     if meta.len() < 500 {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
         bail!("File too small");
+    }
+    if let Some(parent_dir) = dest.parent() {
+        if !parent_dir.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent_dir).await?;
+        }
+    }
+    match tokio::fs::rename(&tmp_path, dest).await {
+        Ok(_) => {}
+        Err(_) => {
+            tokio::fs::copy(&tmp_path, dest).await?;
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+        }
     }
     Ok(())
 }
@@ -166,13 +187,47 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
         let alt = fixed.replace("https://www.tiktok.com", "https://www.tikwm.com");
         candidates.push(alt);
     }
+    let mut failed_urls: Vec<String> = Vec::new();
     for attempt in 0..3 {
         let url_to_try = if attempt < candidates.len() { &candidates[attempt] } else { &fixed };
+        if failed_urls.iter().any(|u| u == url_to_try) {
+            if attempt >= 2 { break; }
+            continue;
+        }
         match download_file(url_to_try, &dest, "Audio").await {
             Ok(_) => {
                 let meta = tokio::fs::metadata(&dest).await.ok()?;
                 if meta.len() < 1000 {
+                    failed_urls.push(url_to_try.to_string());
                     continue;
+                }
+                // Instagram carousels can report a video mp4 (muxed audio) as the
+                // "music" source. Detect a video stream and keep only the audio so
+                // the swipe renderer gets a pure audio file.
+                let (has_video, has_audio) = probe_streams(&dest);
+                if has_video {
+                    if !has_audio {
+                        // Silent video slide -> no usable music
+                        failed_urls.push(url_to_try.to_string());
+                        continue;
+                    }
+                    let stripped = tmpdir.join("audio_stripped.m4a");
+                    let out = Command::new("ffmpeg")
+                        .args(["-y", "-i", dest.to_str().unwrap_or(""), "-vn", "-c:a", "copy", "-movflags", "+faststart"])
+                        .arg(&stripped)
+                        .output();
+                    let ok = out.map(|o| o.status.success()).unwrap_or(false);
+                    if ok {
+                        if let Ok(sm) = tokio::fs::metadata(&stripped).await {
+                            if sm.len() > 1000 {
+                                let _ = tokio::fs::rename(&stripped, &dest).await;
+                                return Some(dest.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                    // Fall back to the full mp4 if stripping failed; mux_audio
+                    // still maps its first audio track.
+                    return Some(dest.to_string_lossy().to_string());
                 }
                 return Some(dest.to_string_lossy().to_string());
             }
@@ -183,4 +238,26 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
         }
     }
     None
+}
+
+// Returns (has_video_stream, has_audio_stream) for a media file.
+fn probe_streams(path: &Path) -> (bool, bool) {
+    let out = Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path.to_str().unwrap_or("")])
+        .output()
+        .ok();
+    let mut has_video = false;
+    let mut has_audio = false;
+    if let Some(o) = out {
+        if o.status.success() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                match line.trim() {
+                    "video" => has_video = true,
+                    "audio" => has_audio = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+    (has_video, has_audio)
 }

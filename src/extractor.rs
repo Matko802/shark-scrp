@@ -719,6 +719,83 @@ fn is_ig_video_slide(e: &Value) -> bool {
         .map_or(false, |a| !a.is_empty())
 }
 
+// Collect audio-only URLs (audio_src etc.) from a dumped Instagram JSON tree.
+fn collect_ig_audio(v: &Value, out: &mut Vec<String>, depth: usize) {
+    if depth > 40 { return; }
+    match v {
+        Value::Object(map) => {
+            // Direct audio object form: {"audio": {"audio_src": "...", ...}}
+            if let Some(ao) = map.get("audio").and_then(|x| x.as_object()) {
+                for key in ["audio_src", "audio_url", "download_audio_url"] {
+                    if let Some(s) = ao.get(key).and_then(|x| x.as_str()) {
+                        if s.starts_with("http") && !out.contains(&s.to_string()) {
+                            out.push(s.to_string());
+                        }
+                    }
+                }
+            }
+            for (k, val) in map {
+                if let Some(s) = val.as_str() {
+                    if s.starts_with("http") {
+                        let kl = k.to_lowercase();
+                        let audio_key = kl.contains("audio_src")
+                            || kl.contains("audio_url")
+                            || kl.contains("original_audio")
+                            || kl.contains("music_asset")
+                            || kl == "music"
+                            || (kl.contains("download") && kl.contains("audio"));
+                        if audio_key && !out.contains(&s.to_string()) {
+                            out.push(s.to_string());
+                        }
+                    }
+                } else if k == "music_info" || k == "clips_metadata" || k == "audio" || k == "music_asset_info" {
+                    if let Some(m) = val.as_object() {
+                        for (mk, mv) in m {
+                            if let Some(s) = mv.as_str() {
+                                let ml = mk.to_lowercase();
+                                if s.starts_with("http")
+                                    && (ml.contains("audio") || ml.contains("url") || ml.contains("src") || ml.contains("play"))
+                                    && !out.contains(&s.to_string())
+                                {
+                                    out.push(s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                collect_ig_audio(val, out, depth + 1);
+            }
+        }
+        Value::Array(arr) => {
+            for x in arr { collect_ig_audio(x, out, depth + 1); }
+        }
+        _ => {}
+    }
+}
+
+// Pick the highest-resolution video_versions URL (mp4 with muxed audio).
+fn best_ig_video_url(e: &Value) -> Option<String> {
+    if let Some(vv) = e.get("video_versions").and_then(|x| x.as_array()) {
+        let mut best: Option<(u64, String)> = None;
+        for f in vv {
+            let url = f.get("url").and_then(|x| x.as_str());
+            let w = f.get("width").and_then(|x| x.as_u64()).unwrap_or(0);
+            let h = f.get("height").and_then(|x| x.as_u64()).unwrap_or(0);
+            if let Some(u) = url {
+                if !u.starts_with("http") { continue; }
+                let score = w * h;
+                if best.as_ref().map_or(true, |(s, _)| score > *s) {
+                    best = Some((score, u.to_string()));
+                }
+            }
+        }
+        if let Some((_, u)) = best {
+            return Some(u);
+        }
+    }
+    None
+}
+
 fn best_ig_candidates(e: &Value) -> Option<String> {
     // Pick highest-resolution candidate from image_versions2.candidates
     if let Some(cands) = e.get("image_versions2")
@@ -840,6 +917,7 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
     let mut captions: Vec<String> = Vec::new();
     let mut authors: Vec<String> = Vec::new();
     let mut durations: Vec<f64> = Vec::new();
+    let mut parsed_dumps: Vec<Value> = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(dump_dir.path()) {
         for entry in entries.flatten() {
@@ -849,6 +927,7 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
             }
             if let Ok(data) = std::fs::read(entry.path()) {
                 if let Ok(v) = serde_json::from_slice::<Value>(&data) {
+                    parsed_dumps.push(v.clone());
                     walk_ig_tree(
                         &v, &mut carousels, &mut leaves,
                         &mut captions, &mut authors, &mut durations, 0,
@@ -895,10 +974,39 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
     };
     let duration = durations.into_iter().fold(0.0_f64, f64::max);
 
+    // Audio detection. Instagram carousels with a soundtrack carry the sound in
+    // a video slide: either a dedicated audio_url (audio_src) or the muxed
+    // audio inside the slide's video_versions mp4. Without this the generated
+    // swipe video silently dropped the audio.
+    let mut music_url: Option<String> = None;
+    let mut audio_candidates: Vec<String> = Vec::new();
+    for v in &parsed_dumps {
+        collect_ig_audio(v, &mut audio_candidates, 0);
+    }
+    // Prefer a real audio-only URL if one exists.
+    if let Some(u) = audio_candidates.iter().find(|u| u.starts_with("http")) {
+        music_url = Some(u.clone());
+    }
+    // Fallback: use the best video_versions mp4 of the first non-muted video
+    // slide (its audio stream is muxed and extracted later downstream).
+    if music_url.is_none() {
+        for s in &slides {
+            if is_ig_video_slide(s) {
+                let muted = s.get("has_audio").and_then(|x| x.as_bool()) == Some(false);
+                if !muted {
+                    if let Some(u) = best_ig_video_url(s) {
+                        music_url = Some(u);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     if !images.is_empty() {
         return Ok(SlideInfo {
             images,
-            music_url: None,
+            music_url,
             title,
             duration: if duration > 0.0 { Some(duration) } else { None },
             source: "instagram".to_string(),
@@ -1123,4 +1231,124 @@ pub async fn extract_info(url: &str) -> Result<SlideInfo> {
         "Failed to extract TikTok slideshow. Reasons:\n- URL may not be a photo slideshow (image post). Video URLs are not supported.\n- TikTok blocked extraction (WAF/IP block 10204). Try VPN or different network.\nURL: {}\nTip: Ensure URL is full TikTok photo URL like https://www.tiktok.com/@user/photo/123... or vm.tiktok.com/... short link.",
         original
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn carousel_dump() -> Value {
+        // Mirrors the mobile-v1 PolarisMedia object that yt-dlp dumps for an
+        // Instagram carousel containing photos + a video slide with audio.
+        json!({
+            "data": {
+                "xig_polaris_media": {
+                    "if_not_gated_logged_out": {
+                        "media_type": 8,
+                        "caption": { "text": "A carousel with sound" },
+                        "user": { "username": "testuser" },
+                        "carousel_media": [
+                            {
+                                "media_type": 1,
+                                "image_versions2": { "candidates": [
+                                    { "url": "https://cdn/c1.jpg", "width": 400, "height": 400 }
+                                ]}
+                            },
+                            {
+                                "media_type": 2,
+                                "image_versions2": { "candidates": [
+                                    { "url": "https://cdn/c2.jpg", "width": 400, "height": 400 }
+                                ]},
+                                "video_versions": [
+                                    { "url": "https://cdn/low.mp4", "width": 480, "height": 480 },
+                                    { "url": "https://cdn/high.mp4", "width": 1080, "height": 1920 }
+                                ],
+                                "video_duration": 7.5,
+                                "has_audio": true
+                            }
+                        ]
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn audio_carousel_extracts_video_slide_audio() {
+        let dump = carousel_dump();
+        let mut carousels = Vec::new();
+        let mut leaves = Vec::new();
+        let mut captions = Vec::new();
+        let mut authors = Vec::new();
+        let mut durations = Vec::new();
+        walk_ig_tree(&dump, &mut carousels, &mut leaves, &mut captions, &mut authors, &mut durations, 0);
+
+        assert_eq!(carousels.len(), 1);
+        let slides = &carousels[0];
+        assert_eq!(slides.len(), 2);
+
+        // no dedicated audio-only field -> audio comes from the video slide
+        let mut candidates = Vec::new();
+        collect_ig_audio(&dump, &mut candidates, 0);
+        assert!(candidates.is_empty());
+
+        let video_slide = &slides[1];
+        assert!(is_ig_video_slide(video_slide));
+        let url = best_ig_video_url(video_slide).unwrap();
+        assert_eq!(url, "https://cdn/high.mp4"); // highest resolution picked
+
+        let mut music_url = candidates.into_iter().next();
+        if music_url.is_none() {
+            for s in slides {
+                if is_ig_video_slide(s) && s.get("has_audio").and_then(|x| x.as_bool()) != Some(false) {
+                    music_url = best_ig_video_url(s);
+                    break;
+                }
+            }
+        }
+        assert_eq!(music_url.as_deref(), Some("https://cdn/high.mp4"));
+    }
+
+    #[test]
+    fn audio_src_direct_field_is_preferred() {
+        let dump = json!({
+            "post": {
+                "media_type": 2,
+                "audio": { "audio_src": "https://cdn-preview/audio.mp4" },
+                "video_versions": [ { "url": "https://cdn/movie.mp4", "width": 720, "height": 1280 } ]
+            }
+        });
+        let mut candidates = Vec::new();
+        collect_ig_audio(&dump, &mut candidates, 0);
+        assert_eq!(candidates, vec!["https://cdn-preview/audio.mp4".to_string()]);
+    }
+
+    #[test]
+    fn muted_video_slide_is_skipped() {
+        let dump = json!({
+            "carousel_media": [
+                { "media_type": 1, "image_versions2": { "candidates": [{ "url": "https://cdn/p.jpg" }] } },
+                { "media_type": 2, "has_audio": false, "video_versions": [{ "url": "https://cdn/silent.mp4", "width": 720, "height": 720 }] }
+            ]
+        });
+        let mut carousels = Vec::new();
+        let mut leaves = Vec::new();
+        let mut captions = Vec::new();
+        let mut authors = Vec::new();
+        let mut durations = Vec::new();
+        walk_ig_tree(&dump, &mut carousels, &mut leaves, &mut captions, &mut authors, &mut durations, 0);
+
+        let mut music_url: Option<String> = None;
+        for s in &carousels[0] {
+            if is_ig_video_slide(s) {
+                let muted = s.get("has_audio").and_then(|x| x.as_bool()) == Some(false);
+                if !muted {
+                    music_url = best_ig_video_url(s);
+                    break;
+                }
+            }
+        }
+        assert!(music_url.is_none());
+    }
 }
