@@ -88,10 +88,8 @@ async fn fetch_latest_tag() -> Result<String> {
 
 async fn download_file(url: &str, dest: &Path) -> Result<()> {
     use futures_util::StreamExt;
-    use indicatif::{ProgressBar, ProgressStyle};
     use tokio::io::AsyncWriteExt;
 
-    println!("Fetching yt-dlp from GitHub...");
     let client = reqwest::Client::builder()
         .user_agent("shark-scrp/1.0")
         .timeout(std::time::Duration::from_secs(120))
@@ -101,31 +99,15 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
         bail!("HTTP {} for {}", resp.status(), url);
     }
     let total = resp.content_length().unwrap_or(0);
-    let pb = if total > 0 {
-        let pb = ProgressBar::new(total);
-        pb.set_style(ProgressStyle::default_bar().template("{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} {eta}").unwrap().progress_chars("█▉▊▋▌▍▎▏ "));
-        pb.set_message("Fetching yt-dlp");
-        Some(pb)
-    } else {
-        let pb = ProgressBar::new_spinner();
-        pb.set_message("Fetching yt-dlp");
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        Some(pb)
-    };
+    let _ = total;
     if let Some(parent) = dest.parent() { tokio::fs::create_dir_all(parent).await?; }
     let mut file = tokio::fs::File::create(dest).await?;
     let mut stream = resp.bytes_stream();
-    let mut downloaded: u64 = 0;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         file.write_all(&chunk).await?;
-        downloaded += chunk.len() as u64;
-        if let Some(ref pb) = pb {
-            if total > 0 { pb.set_position(downloaded); } else { pb.set_message(format!("Fetching yt-dlp {} bytes", downloaded)); }
-        }
     }
     file.flush().await?;
-    if let Some(pb) = pb { pb.finish_and_clear(); }
     // Make executable
     #[cfg(unix)]
     {
@@ -134,7 +116,6 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
         perm.set_mode(0o755);
         std::fs::set_permissions(dest, perm)?;
     }
-    println!("yt-dlp ready");
     Ok(())
 }
 
@@ -154,7 +135,6 @@ pub async fn ensure_ytdlp() -> Result<PathBuf> {
         let _ = std::fs::remove_file(&cached);
     }
     // 3. Fetch from web (like GUI downloaders)
-    println!("yt-dlp not found, fetching from GitHub...");
     let tag = match fetch_latest_tag().await {
         Ok(t) => t,
         Err(_) => "latest".to_string(),

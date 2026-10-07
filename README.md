@@ -1,53 +1,46 @@
 <div align="center">
 
-# shark-scrp
+# shark-scrp — Shark Media Station
 
-Turns TikTok **photo slideshows** and **Instagram posts / carousels / reels** into a TikTok-style swipe video — no loop, no repetition.
+GTK4 + libadwaita **compressor platform** with **TikTok slideshow** and **yt-dlp downloader** built in.
+Overengineered inside, one-button simple outside.
 
 </div>
 
-## Features
+## Tabs
 
-- TikTok-like smooth swipe animation (easeOutCubic, seamless, no gaps)
-- original audio auto-downloaded and muxed, video length synced to music
-- Instagram carousels with a soundtrack are supported
-- pure Rust, single binary — `ffmpeg` + `yt-dlp` used behind the scenes
+- **Compress** — drop files, pick `Balanced / Tiny / Quality`, hit Compress.
+  - JPEG → MozJPEG (`cjpeg`), fallback ImageMagick
+  - PNG → ECT lossless (`-9 --strict`), fallback ImageMagick strip
+  - GIF → Gifsicle (`-O3 --colors --lossy`), fallback ImageMagick
+  - WebP / AVIF / other images → ImageMagick
+  - Video → FFmpeg (`libx264/x265/VP9`, CRF + preset + max-height)
+  - Audio → FFmpeg (`opus/mp3/aac/flac`)
+  - Queue with per-job progress, before → after + % saved, clear-finished
+- **Download** — one URL field:
+  - TikTok / Instagram → slideshow video (swipe, music muxed), images-only folder, or direct video
+  - YouTube / anything else → yt-dlp best-video or audio-only
+  - Paste button, output folder, transition/FPS/no-music options
+- **Tools dialog** — live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp` + parallel-jobs / keep-originals settings
 
-## Building
+Presets live in `~/.config/shark-scrp/compress-presets.json`, settings in `settings.json`.
 
-Not on Nix? Requires `cargo` + `ffmpeg`/`ffprobe` + `yt-dlp`:
-
-```sh
-git clone https://github.com/Matko802/shark-scrp.git
-cd shark-scrp
-cargo build --release
-./target/release/shark-scrp <url>
-```
-
-On NixOS or any distro with Nix, just:
+## Run
 
 ```sh
 nix run github:Matko802/shark-scrp
 ```
 
-## Usage
+Dev:
 
 ```sh
-shark-scrp "https://www.tiktok.com/@user/photo/123..."
-shark-scrp "https://www.instagram.com/reel/DceabVZT3sN/"
-shark-scrp URL -o out.mp4       # custom output
-shark-scrp URL --no-music       # silent video
-shark-scrp -v                   # version
+nix develop
+cargo test
+cargo run
 ```
 
-| Flag              | Default     | Meaning                        |
-| ----------------- | ----------- | ------------------------------ |
-| `-o, --output`    | title name  | output mp4 path                |
-| `--trans`         | `0.6`       | swipe transition seconds       |
-| `--fps`           | `30`        | video fps                      |
-| `--width`/`--height` | `1080`x`1920` | resolution              |
-| `--no-music`      |             | skip audio                     |
-| `--keep-temp`     |             | keep downloaded images/audio   |
+Needs on Nix: `gtk4 libadwaita ffmpeg imagemagick gifsicle mozjpeg efficient-compression-tool yt-dlp`.
+`yt-dlp` is also auto-fetched from GitHub into `~/.cache/shark-scrp` if missing.
 
 ## Nix flakes
 

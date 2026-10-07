@@ -1,10 +1,12 @@
 use anyhow::{bail, Result};
 use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use crate::ytdlp;
+
+pub type ProgressCb = Arc<dyn Fn(u64, u64) + Send + Sync>;
 
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
@@ -51,7 +53,11 @@ pub async fn download_direct_video(url: &str, dest: &Path) -> Result<()> {
     download_via_ytdlp(url, dest).await
 }
 
-pub async fn download_file(url: &str, dest: &Path, desc: &str) -> Result<()> {
+pub async fn download_file(url: &str, dest: &Path, _desc: &str) -> Result<()> {
+    download_file_with_progress(url, dest, None).await
+}
+
+pub async fn download_file_with_progress(url: &str, dest: &Path, progress: Option<ProgressCb>) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
@@ -92,17 +98,6 @@ pub async fn download_file(url: &str, dest: &Path, desc: &str) -> Result<()> {
         return download_via_ytdlp(&fixed_url, dest).await;
     }
     let total = resp.content_length().unwrap_or(0);
-    let pb = if total > 0 {
-        let pb = ProgressBar::new(total);
-        pb.set_style(ProgressStyle::default_bar().template("{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} {eta}").unwrap().progress_chars("█▉▊▋▌▍▎▏ "));
-        pb.set_message(desc.to_string());
-        Some(pb)
-    } else {
-        let pb = ProgressBar::new_spinner();
-        pb.set_message(desc.to_string());
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
-        Some(pb)
-    };
     let mut file = tokio::fs::File::create(dest).await?;
     let mut stream = resp.bytes_stream();
     let mut downloaded: u64 = 0;
@@ -110,23 +105,29 @@ pub async fn download_file(url: &str, dest: &Path, desc: &str) -> Result<()> {
         let chunk = chunk?;
         file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
-        if let Some(ref pb) = pb {
-            if total > 0 { pb.set_position(downloaded); } else { pb.set_message(format!("{} {} bytes", desc, downloaded)); }
+        if let Some(cb) = &progress {
+            cb(downloaded, total);
         }
     }
     file.flush().await?;
-    if let Some(pb) = pb { pb.finish_and_clear(); }
-    // verify size
     let meta = tokio::fs::metadata(dest).await?;
-    if meta.len() < 500 && desc.starts_with("Image") {
+    if meta.len() < 500 && url.to_lowercase().contains("image") {
         bail!("File too small (likely blocked) for {}", fixed_url);
     }
     Ok(())
 }
 
 pub async fn download_all_images(image_urls: Vec<String>, tmpdir: &Path) -> Result<Vec<String>> {
-    println!("Downloading {} images...", image_urls.len());
+    download_all_images_with_progress(image_urls, tmpdir, None).await
+}
+
+pub async fn download_all_images_with_progress(
+    image_urls: Vec<String>,
+    tmpdir: &Path,
+    progress: Option<ProgressCb>,
+) -> Result<Vec<String>> {
     let mut paths: Vec<String> = Vec::new();
+    let total = image_urls.len() as u64;
     for (i, url) in image_urls.iter().enumerate() {
         let mut fixed = url.clone().replace("\\u002F", "/");
         if fixed.starts_with("//") { fixed = format!("https:{}", fixed); }
@@ -134,10 +135,9 @@ pub async fn download_all_images(image_urls: Vec<String>, tmpdir: &Path) -> Resu
         let lower = fixed.to_lowercase();
         let ext = if lower.contains(".webp") { ".webp" } else if lower.contains(".png") { ".png" } else if lower.contains(".jpeg") { ".jpg" } else { ".jpg" };
         let dest = tmpdir.join(format!("img_{:03}{}", i, ext));
-        let desc = format!("Image {}/{}", i+1, image_urls.len());
         let mut last_err: Option<anyhow::Error> = None;
         for attempt in 0..3 {
-            match download_file(&fixed, &dest, &desc).await {
+            match download_file_with_progress(&fixed, &dest, None).await {
                 Ok(_) => { last_err = None; break; }
                 Err(e) => {
                     last_err = Some(e);
@@ -148,10 +148,12 @@ pub async fn download_all_images(image_urls: Vec<String>, tmpdir: &Path) -> Resu
             }
         }
         if let Some(e) = last_err {
-            eprintln!("Failed to download image {}: {}", i+1, e);
             return Err(e);
         }
         paths.push(dest.to_string_lossy().to_string());
+        if let Some(cb) = &progress {
+            cb((i + 1) as u64, total);
+        }
     }
     Ok(paths)
 }
@@ -173,8 +175,6 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
         if lower.contains("audio_mpeg") { ".mp3" } else if lower.contains("audio_mp4") { ".m4a" } else { ".m4a" }
     } else { ".m4a" };
     let dest = tmpdir.join(format!("audio{}", ext));
-    println!("Downloading audio...");
-    // Build fallback list: try original, then alternative hosts if relative
     let mut candidates = vec![fixed.clone()];
     if fixed.contains("tikwm.com") {
         // Also try tiktok host as fallback
@@ -194,7 +194,7 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
             if attempt >= 2 { break; }
             continue;
         }
-        match download_file(url_to_try, &dest, "Audio").await {
+        match download_file_with_progress(url_to_try, &dest, None).await {
             Ok(_) => {
                 let meta = tokio::fs::metadata(&dest).await.ok()?;
                 if meta.len() < 1000 {

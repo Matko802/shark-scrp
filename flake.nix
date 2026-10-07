@@ -1,5 +1,5 @@
 {
-  description = "shark-scrp - TikTok slideshow / Instagram carousel downloader -> TikTok-style swipe video";
+  description = "shark-scrp - GTK4 media station: compressor + TikTok slideshow + yt-dlp downloader";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -12,11 +12,20 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
+      mediaBinPath = pkgs: pkgs.lib.makeBinPath [
+        pkgs.ffmpeg
+        pkgs.imagemagick
+        pkgs.gifsicle
+        pkgs.mozjpeg
+        pkgs.efficient-compression-tool
+        pkgs.yt-dlp
+      ];
+
       shark-scrp =
         { pkgs }:
         pkgs.rustPlatform.buildRustPackage {
           pname = "shark-scrp";
-          version = "1.0.0";
+          version = "1.1.0";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
             filter = path: type:
@@ -34,17 +43,31 @@
               && !(pkgs.lib.hasSuffix ".mp4" b);
           };
           cargoLock.lockFile = ./Cargo.lock;
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          # Wrap binary so ffmpeg/ffprobe + yt-dlp are in PATH at runtime
-          # (video.rs spawns ffmpeg/ffprobe, extractor.rs spawns yt-dlp)
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+            wrapGAppsHook4
+            pkg-config
+            glib
+            gobject-introspection
+          ];
+          buildInputs = with pkgs; [
+            gtk4
+            libadwaita
+            glib
+            pango
+            cairo
+            gdk-pixbuf
+            graphene
+          ];
           postInstall = ''
             wrapProgram $out/bin/shark-scrp \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.ffmpeg pkgs.yt-dlp ]}
+              --prefix PATH : ${mediaBinPath pkgs} \
+              "''${gappsWrapperArgs[@]}"
           '';
           doCheck = false;
           meta = {
             mainProgram = "shark-scrp";
-            description = "TikTok slideshow / Instagram carousel downloader -> TikTok-style swipe video";
+            description = "GTK4 compressor + TikTok slideshow + yt-dlp downloader";
             homepage = "https://github.com/Matko802/shark-scrp";
             license = pkgs.lib.licenses.mit;
             platforms = pkgs.lib.platforms.linux;
@@ -77,9 +100,25 @@
             cargo
             clippy
             rustfmt
+            pkg-config
+            glib
+            gtk4
+            libadwaita
+            pango
+            cairo
+            gdk-pixbuf
+            graphene
+            gobject-introspection
             ffmpeg
+            imagemagick
+            gifsicle
+            mozjpeg
+            efficient-compression-tool
             yt-dlp
           ];
+          shellHook = ''
+            export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}:$XDG_DATA_DIRS
+          '';
         });
     };
 }

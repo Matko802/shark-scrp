@@ -1,10 +1,11 @@
 use anyhow::{bail, Result};
-use image::{imageops::FilterType, GenericImageView, Rgba, RgbaImage, Rgb, RgbImage};
-use indicatif::{ProgressBar, ProgressStyle};
-use rand::Rng;
+use image::{imageops::FilterType, Rgba, RgbaImage, Rgb, RgbImage};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+
+pub type FrameProgressCb = Arc<dyn Fn(u64, u64) + Send + Sync>;
 
 const W: u32 = 1080;
 const H: u32 = 1920;
@@ -138,6 +139,20 @@ pub fn make_silent_video(
     _gap: i32,
     _radius: u32,
 ) -> Result<(f64, f64, f64)> {
+    make_silent_video_with_progress(image_paths, output_path, fps, trans_duration, image_duration_opt, total_duration_opt, width, height, None)
+}
+
+pub fn make_silent_video_with_progress(
+    image_paths: Vec<String>,
+    output_path: &Path,
+    fps: u32,
+    trans_duration: f64,
+    image_duration_opt: Option<f64>,
+    total_duration_opt: Option<f64>,
+    width: u32,
+    height: u32,
+    progress: Option<FrameProgressCb>,
+) -> Result<(f64, f64, f64)> {
     let n = image_paths.len();
     if n == 0 { bail!("No images provided"); }
     let mut trans = trans_duration;
@@ -158,13 +173,9 @@ pub fn make_silent_video(
     }
     if trans < 0.0 { trans = 0.0; }
     let total_duration = n as f64 * image_duration;
-    let total_frames = (total_duration * fps as f64).round();
 
-    println!("Preparing {} images...", n);
     if let Some(parent) = output_path.parent() { std::fs::create_dir_all(parent)?; }
 
-    // Smooth swipe: use raw pipe with easeOutCubic (TikTok curve) for buttery animation
-    // xfade slideleft is linear and looks choppy; raw pipe gives true eased motion
     if trans <= 0.001 || n == 1 {
         // Single image or no transition: simple loop (efficient, no swipe needed)
         let dur = total_duration;
@@ -180,10 +191,8 @@ pub fn make_silent_video(
             bail!("ffmpeg failed: {}", String::from_utf8_lossy(&out.stderr));
         }
     } else {
-        // Smooth eased slide via raw pipe (easeOutCubic) - ensures TikTok-identical curve
-        return make_silent_video_raw(image_paths, output_path, fps, trans, Some(image_duration), Some(total_duration), width, height);
+        return make_silent_video_raw(image_paths, output_path, fps, trans, Some(image_duration), Some(total_duration), width, height, progress);
     }
-    println!("Video ready ({:.1}s)", total_duration);
     Ok((total_duration, image_duration, trans))
 }
 
@@ -196,6 +205,7 @@ fn make_silent_video_raw(
     total_duration_opt: Option<f64>,
     width: u32,
     height: u32,
+    progress: Option<FrameProgressCb>,
 ) -> Result<(f64, f64, f64)> {
     // Fallback raw pipe (original, slower but reliable)
     let n = image_paths.len();
@@ -215,9 +225,6 @@ fn make_silent_video_raw(
         .args(["-y","-f","rawvideo","-pixel_format","rgb24","-video_size",&format!("{}x{}", width, height),"-r",&fps.to_string(),"-i","-","-c:v","libx264","-pix_fmt","yuv420p","-crf","18","-preset","medium","-movflags","+faststart"])
         .arg(output_path).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn()?;
     let mut stdin = child.stdin.take().expect("ffmpeg stdin");
-    let pb = ProgressBar::new(total_frames as u64);
-    pb.set_style(ProgressStyle::default_bar().template("{msg} [{bar:40.cyan/blue}] {pos}/{len} {eta}").unwrap().progress_chars("█▉▊▋▌▍▎▏ "));
-    pb.set_message("Rendering");
     for frame_idx in 0..total_frames {
         let t = frame_idx as f64 / fps as f64;
         let mut idx = (t / image_duration).floor() as usize;
@@ -257,13 +264,13 @@ fn make_silent_video_raw(
             }
         }
         stdin.write_all(frame.as_raw())?;
-        pb.inc(1);
+        if let Some(cb) = &progress {
+            cb((frame_idx + 1) as u64, total_frames as u64);
+        }
     }
-    pb.finish_and_clear();
     drop(stdin);
     let out = child.wait_with_output()?;
     if !out.status.success() { bail!("ffmpeg failed: {}", String::from_utf8_lossy(&out.stderr)); }
-    println!("Video ready ({:.1}s)", total_duration);
     Ok((total_duration, image_duration, trans))
 }
 
@@ -277,10 +284,47 @@ pub fn mux_audio(silent_path: &Path, audio_path: &Path, output_path: &Path, shor
         .arg("-c:v").arg("copy").arg("-c:a").arg("aac").arg("-b:a").arg("192k");
     if shortest { cmd.arg("-shortest"); }
     cmd.arg("-movflags").arg("+faststart").arg(output_path);
-    println!("Muxing audio...");
     let out = cmd.output()?;
     if !out.status.success() {
         bail!("ffmpeg mux failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    Ok(())
+}
+
+pub fn create_swipe_video_with_progress(
+    image_paths: Vec<String>,
+    audio_path: Option<String>,
+    output_path: &Path,
+    fps: u32,
+    trans_duration: f64,
+    image_duration: Option<f64>,
+    width: u32,
+    height: u32,
+    progress: Option<FrameProgressCb>,
+) -> Result<()> {
+    let audio_duration = if let Some(ref ap) = audio_path {
+        if Path::new(ap).exists() {
+            ffprobe_duration(ap)
+        } else {
+            None
+        }
+    } else { None };
+
+    let (total_opt, img_opt) = if let Some(d) = audio_duration {
+        (Some(d), None)
+    } else {
+        (None, Some(image_duration.unwrap_or(2.8)))
+    };
+
+    let need_tmp = audio_duration.is_some() && audio_path.is_some();
+    if need_tmp {
+        let tmpdir = tempfile::tempdir()?;
+        let silent_path = tmpdir.path().join("silent.mp4");
+        make_silent_video_with_progress(image_paths.clone(), &silent_path, fps, trans_duration, img_opt, total_opt, width, height, progress)?;
+        let audio_p = Path::new(audio_path.as_ref().unwrap());
+        mux_audio(&silent_path, audio_p, output_path, true)?;
+    } else {
+        make_silent_video_with_progress(image_paths, output_path, fps, trans_duration, img_opt, total_opt, width, height, progress)?;
     }
     Ok(())
 }
