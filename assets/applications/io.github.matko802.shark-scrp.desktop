@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Shark Media Station
+GenericName=Media compressor and downloader
+Comment=Compress images, video and audio to a target size; download TikTok slideshows and online videos
+Exec=shark-scrp
+Icon=io.github.matko802.shark-scrp
+Terminal=false
+Categories=AudioVideo;
+Keywords=compress;video;audio;image;tiktok;download;discord;size;
+StartupWMClass=io.github.matko802.shark-scrp
+DBusActivatable=true
+SingleMainWindow=true

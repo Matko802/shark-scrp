@@ -9,14 +9,13 @@ Overengineered inside, one-button simple outside.
 
 ## Tabs
 
-- **Compress** — drop files, pick `Balanced / Tiny / Quality`, hit Compress.
-  - JPEG → MozJPEG (`cjpeg`), fallback ImageMagick
-  - PNG → ECT lossless (`-9 --strict`), fallback ImageMagick strip
-  - GIF → Gifsicle (`-O3 --colors --lossy`), fallback ImageMagick
-  - WebP / AVIF / other images → ImageMagick
-  - Video → FFmpeg (`libx264/x265/VP9`, CRF + preset + max-height)
-  - Audio → FFmpeg (`opus/mp3/aac/flac`)
-  - Queue with per-job progress, before → after + % saved, clear-finished
+- **Compress** — add files or paste a URL, pick a target size, hit Compress.
+  - Target sizes: 8 / 10 / 25 / 50 / 100 / 500 MB or custom, with Remember choice
+  - Output formats: Auto, MP4, WebM, MP3, Opus, JPEG, PNG, WebP, GIF, each with an efficiency note
+  - Effort levels: Fast / Balanced / Thorough (quality-time tradeoff, Thorough uses two-pass video)
+  - Auto-fit engine: tries a high-quality encode first, then searches downward (quality binary search for images, Auto-Rez bitrate + resolution ladder for video, bitrate ladder for audio) so the result is the best quality that fits
+  - Backends: JPEG → MozJPEG, PNG → ECT, GIF → Gifsicle, other images → ImageMagick, video/audio → FFmpeg
+  - 2 GiB input limit, per-job progress, before → after + % saved, per-file Open button
 - **Download** — one URL field:
   - TikTok / Instagram → slideshow video (swipe, music muxed), images-only folder, or direct video
   - YouTube / anything else → yt-dlp best-video or audio-only

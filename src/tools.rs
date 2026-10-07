@@ -28,18 +28,6 @@ impl ToolId {
         }
     }
 
-    pub fn role(&self) -> &'static str {
-        match self {
-            ToolId::Ffmpeg => "video + audio decode, process, encode",
-            ToolId::Ffprobe => "media probing",
-            ToolId::Magick => "image processing",
-            ToolId::Gifsicle => "GIF optimization",
-            ToolId::Cjpeg => "high-compression JPEGs",
-            ToolId::Ect => "lossless PNG optimization",
-            ToolId::YtDlp => "video / audio / slideshow download",
-        }
-    }
-
     pub fn candidates(&self) -> &'static [&'static str] {
         match self {
             ToolId::Ffmpeg => &["ffmpeg"],

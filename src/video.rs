@@ -29,7 +29,7 @@ pub fn ffprobe_duration(path: &str) -> Option<f64> {
 }
 
 fn prepare_cover(path: &str, width: u32, height: u32) -> Result<RgbImage> {
-    // Fit: preserve aspect ratio, no cropping, centered on black background (simple)
+
     let img = image::open(path)?.to_rgb8();
     let (iw, ih) = img.dimensions();
     if iw == 0 || ih == 0 {
@@ -39,11 +39,11 @@ fn prepare_cover(path: &str, width: u32, height: u32) -> Result<RgbImage> {
     let new_w = ((iw as f64 * scale).round() as u32).max(1);
     let new_h = ((ih as f64 * scale).round() as u32).max(1);
     let resized = image::imageops::resize(&img, new_w, new_h, FilterType::Lanczos3);
-    // Create black canvas and paste centered
+
     let mut canvas = RgbImage::from_pixel(width, height, Rgb([0,0,0]));
     let x = (width.saturating_sub(new_w)) / 2;
     let y = (height.saturating_sub(new_h)) / 2;
-    // Manual paste (imageops::overlay would also work)
+
     for ry in 0..new_h {
         for rx in 0..new_w {
             let p = resized.get_pixel(rx, ry);
@@ -55,11 +55,9 @@ fn prepare_cover(path: &str, width: u32, height: u32) -> Result<RgbImage> {
 
 fn rounded_image(img: &RgbImage, radius: u32) -> RgbaImage {
     let (w, h) = img.dimensions();
-    // create mask L
+
     let mut mask = image::GrayImage::new(w, h);
-    // draw rounded rectangle
-    // Use imageproc? For simplicity we do manual: fill white where inside rounded rect
-    // We'll use naïve pixel check
+
     for y in 0..h {
         for x in 0..w {
             let inside = is_inside_rounded(x, y, w, h, radius);
@@ -79,8 +77,7 @@ fn rounded_image(img: &RgbImage, radius: u32) -> RgbaImage {
 
 fn is_inside_rounded(x: u32, y: u32, w: u32, h: u32, r: u32) -> bool {
     if r == 0 { return true; }
-    // Check corners
-    // Top-left
+
     if x < r && y < r {
         let dx = r as i32 - x as i32 - 1;
         let dy = r as i32 - y as i32 - 1;
@@ -116,7 +113,7 @@ fn paste_rgba_onto(dst: &mut RgbaImage, src: &RgbaImage, off_x: i32, off_y: i32)
             let sp = src.get_pixel(sx, sy);
             if sp[3] == 0 { continue; }
             let dp = dst.get_pixel_mut(dx as u32, dy as u32);
-            // alpha blend src over dst (dst is opaque black)
+
             let sa = sp[3] as f32 / 255.0;
             let da = 1.0 - sa;
             dp[0] = (sp[0] as f32 * sa + dp[0] as f32 * da).round() as u8;
@@ -177,7 +174,7 @@ pub fn make_silent_video_with_progress(
     if let Some(parent) = output_path.parent() { std::fs::create_dir_all(parent)?; }
 
     if trans <= 0.001 || n == 1 {
-        // Single image or no transition: simple loop (efficient, no swipe needed)
+
         let dur = total_duration;
         let filter = format!("scale=w={}:h={}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={}", width, height, width, height, fps);
         let mut cmd = Command::new("ffmpeg");
@@ -207,7 +204,7 @@ fn make_silent_video_raw(
     height: u32,
     progress: Option<FrameProgressCb>,
 ) -> Result<(f64, f64, f64)> {
-    // Fallback raw pipe (original, slower but reliable)
+
     let n = image_paths.len();
     let mut trans = trans_duration;
     if n == 1 { trans = 0.0; }
@@ -242,10 +239,10 @@ fn make_silent_video_raw(
                 let eased = ease_tiktok(p);
                 let offset = (eased * travel as f64).round() as i32;
                 let mut canvas = RgbImage::from_pixel(width, height, Rgb([0,0,0]));
-                // Simple slide without gap/radius (optimized)
+
                 let out_x = -offset;
                 let in_x = width as i32 - offset;
-                // Paste covers directly (no rounded)
+
                 for y in 0..height {
                     for x in 0..width {
                         let sx_out = x as i32 - out_x;
@@ -366,7 +363,7 @@ pub fn create_swipe_video(
         let _ = total_used;
         let audio_p = Path::new(audio_path.as_ref().unwrap());
         mux_audio(&silent_path, audio_p, output_path, true)?;
-        // tmpdir auto cleanup
+
     } else {
         make_silent_video(image_paths, output_path, fps, trans_duration, img_opt, total_opt, width, height, gap, radius)?;
         println!("Silent video ready");

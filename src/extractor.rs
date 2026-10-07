@@ -38,7 +38,7 @@ pub async fn resolve_url(url: &str) -> String {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static(DEFAULT_UA));
     headers.insert(reqwest::header::REFERER, reqwest::header::HeaderValue::from_static("https://www.tiktok.com/"));
-    // Try HEAD
+
     if let Ok(resp) = client.head(url).headers(headers.clone()).send().await {
         let final_url = resp.url().to_string();
         if final_url != url && !final_url.is_empty() {
@@ -51,7 +51,6 @@ pub async fn resolve_url(url: &str) -> String {
     url.to_string()
 }
 
-// TikWM extractor - used as primary for images (13), yt-dlp behind for music
 pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
@@ -79,7 +78,7 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
         return None;
     }
     let inner = data.get("data")?.clone();
-    // images
+
     let images_val = inner.get("images")?;
     let mut clean_images: Vec<String> = Vec::new();
     if let Some(arr) = images_val.as_array() {
@@ -101,9 +100,9 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
     if clean_images.is_empty() {
         return None;
     }
-    // music - prioritize absolute tiktokcdn URLs in music_info before relative /video/music
+
     let mut music_url: Option<String> = None;
-    // First try music_info absolute URLs (preferred)
+
     if let Some(mi) = inner.get("music_info") {
         for key in ["play", "hdplay", "url", "downloadUrl", "originalUrl"] {
             if let Some(p) = mi.get(key).and_then(|v| v.as_str()) {
@@ -113,14 +112,14 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
                 }
             }
         }
-        // also check music_info.music.play?
+
         if music_url.is_none() {
             if let Some(p) = mi.get("music").and_then(|v| v.get("play")).and_then(|v| v.as_str()) {
                 if p.starts_with("http") { music_url = Some(p.to_string()); }
             }
         }
     }
-    // Then try top-level hdplay/play absolute
+
     if music_url.is_none() {
         if let Some(p) = inner.get("hdplay").and_then(|v| v.as_str()) {
             if p.starts_with("http") { music_url = Some(p.to_string()); }
@@ -131,7 +130,7 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
             if p.starts_with("http") { music_url = Some(p.to_string()); }
         }
     }
-    // Fallback to relative/generic fields (may be /video/music/...)
+
     if music_url.is_none() {
         if let Some(m) = inner.get("music").and_then(|v| v.as_str()) {
             if !m.is_empty() { music_url = Some(m.to_string()); }
@@ -163,7 +162,7 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
             _ => None,
         }
     };
-    // Normalize music_url: handle relative paths
+
     let music_url = music_url.map(|u| {
         let u = u.replace("\\u002F", "/");
         if u.starts_with("http://") || u.starts_with("https://") {
@@ -171,7 +170,7 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
         } else if u.starts_with("//") {
             format!("https:{}", u)
         } else if u.starts_with('/') {
-            // TikWM returns /video/music/... -> prepend tikwm host
+
             format!("https://www.tikwm.com{}", u)
         } else {
             u
@@ -188,8 +187,7 @@ pub async fn extract_tikwm(url: &str) -> Option<SlideInfo> {
 }
 
 fn extract_class_by_id(html: &str, id: &str) -> Option<String> {
-    // Find element with id="cs" etc, extract class="..."
-    // Use regex
+
     let pattern = format!(r#"<[^>]*\bid=["']{}["'][^>]*>"#, regex::escape(id));
     let re = Regex::new(&pattern).ok()?;
     let m = re.find(html)?;
@@ -200,16 +198,14 @@ fn extract_class_by_id(html: &str, id: &str) -> Option<String> {
 }
 
 fn solve_tiktok_challenge(html: &str) -> Option<(String, String, Option<String>, Option<String>)> {
-    // Extract challenge_data from class of id=cs
+
     let cs_class = extract_class_by_id(html, "cs")?;
-    // cs_class is base64 encoded JSON with padding stripped? Original adds '==='
-    // Try to decode with padding
+
     let padded = format!("{}===", cs_class);
-    // Actually original does: f'{x}===' then b64decode. So we add 3 pads and try
+
     let decoded = BASE64.decode(padded).or_else(|_| BASE64.decode(&cs_class)).ok()?;
     let mut challenge: Value = serde_json::from_slice(&decoded).ok()?;
 
-    // expected digest: challenge['v']['c'] base64
     let v = challenge.get("v")?;
     let c_b64 = v.get("c")?.as_str()?;
     let expected_digest = BASE64.decode(c_b64).ok()?;
@@ -218,11 +214,8 @@ fn solve_tiktok_challenge(html: &str) -> Option<(String, String, Option<String>,
     let base_bytes = BASE64.decode(a_b64).ok()?;
     let mut base_hasher = Sha256::new();
     base_hasher.update(&base_bytes);
-    let base_hash_bytes = base_hasher.finalize_reset(); // Need to clone hasher for loop -> we need to reinitialize each time
-    // Instead, store base_bytes and create new hasher each iteration with base_bytes as initial
-    // But original: base_hash = sha256(base_bytes)
-    // then for i: test_hash = base_hash.copy(); test_hash.update(number)
-    // So we need to reproduce: Sha256 of base_bytes, then update with i string
+    let base_hash_bytes = base_hasher.finalize_reset();
+
     let mut found: Option<String> = None;
     for i in 0..1_000_001 {
         let num_str = i.to_string();
@@ -234,12 +227,12 @@ fn solve_tiktok_challenge(html: &str) -> Option<(String, String, Option<String>,
             found = Some(num_str);
             break;
         }
-        // optimization: we computed base_hash_bytes but not needed; we recompute
+
         let _ = base_hash_bytes;
     }
     let solution = found?;
     let d_b64 = BASE64.encode(solution.as_bytes());
-    // Insert into challenge json
+
     if let Some(obj) = challenge.as_object_mut() {
         obj.insert("d".to_string(), Value::String(d_b64));
     }
@@ -274,7 +267,6 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         .ok()?;
     let html = res.text().await.ok()?;
 
-    // If challenge page, solve
     let mut html_to_parse = html.clone();
     let mut extra_cookie: Option<String> = None;
     if html.contains("Please wait") || (html.to_lowercase().contains("challenge") && html.to_lowercase().contains("base64")) {
@@ -285,7 +277,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                 cookie2.push_str(&format!("; {}={}", rn, rv));
             }
             extra_cookie = Some(cookie2.clone());
-            // retry fetch
+
             if let Ok(res2) = client
                 .get(&resolved)
                 .header("User-Agent", DEFAULT_UA)
@@ -299,29 +291,27 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                 }
             }
         } else {
-            // Could not solve, but try to continue parsing original html anyway
+
         }
     }
 
-    // Parse universal data
     let mut images: Vec<String> = Vec::new();
     let mut music_url: Option<String> = None;
     let mut title: String = String::new();
     let mut duration: Option<f64> = None;
 
-    // Helper closure to walk JSON
     fn walk(value: &Value, images: &mut Vec<String>, music_url: &mut Option<String>, title: &mut String, duration: &mut Option<f64>, depth: usize) {
         if depth > 30 { return; }
         match value {
             Value::Object(map) => {
-                // imagePost check
+
                 if let Some(ip) = map.get("imagePost") {
                     if let Some(obj) = ip.as_object() {
                         if let Some(imgs) = obj.get("images").and_then(|v| v.as_array()) {
                             for im in imgs {
                                 let mut found: Option<String> = None;
                                 if let Some(o) = im.as_object() {
-                                    // candidates
+
                                     let candidates = [
                                         o.get("imageURL").and_then(|v| v.get("urlList")).and_then(|v| v.as_array()),
                                         o.get("imageURL").and_then(|v| v.get("url_list")).and_then(|v| v.as_array()),
@@ -352,7 +342,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                         }
                     }
                 }
-                // generic images heuristic
+
                 if let Some(imgs) = map.get("images").and_then(|v| v.as_array()) {
                     if !imgs.is_empty() {
                         if let Some(first) = imgs.get(0) {
@@ -382,7 +372,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                         }
                     }
                 }
-                // music
+
                 if music_url.is_none() {
                     if let Some(music) = map.get("music").and_then(|v| v.as_object()) {
                         for key in ["playUrl", "play_url", "downloadUrl", "url"] {
@@ -423,13 +413,13 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                         }
                     }
                 }
-                // title
+
                 if let Some(desc) = map.get("desc").and_then(|v| v.as_str()) {
                     if !desc.is_empty() && (title.is_empty() || desc.len() > title.len()) {
                         *title = desc.to_string();
                     }
                 }
-                // duration
+
                 if duration.is_none() {
                     if let Some(d) = map.get("duration").and_then(|v| v.as_f64()) {
                         *duration = Some(d);
@@ -446,7 +436,6 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         }
     }
 
-    // Extract universal
     let mut universal: Option<Value> = None;
     let re_universal = Regex::new(r#"<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>"#).ok();
     if let Some(re) = re_universal {
@@ -471,7 +460,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
     }
 
     if let Some(u) = &universal {
-        // Try direct webapp.video-detail
+
         let mut wd: Option<Value> = None;
         if let Some(obj) = u.as_object() {
             for (k, v) in obj {
@@ -486,7 +475,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         }
         if let Some(w) = wd.clone() {
             walk(&w, &mut images, &mut music_url, &mut title, &mut duration, 0);
-            // try itemStruct
+
             let item = w.get("itemInfo").and_then(|v| v.get("itemStruct")).cloned()
                 .or(w.get("itemStruct").cloned());
             if let Some(it) = item { walk(&it, &mut images, &mut music_url, &mut title, &mut duration, 0); }
@@ -502,22 +491,21 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         walk(s, &mut images, &mut music_url, &mut title, &mut duration, 0);
     }
 
-    // Check statusCode
     if let Some(u) = &universal {
         if let Some(wd) = u.get("webapp.video-detail").or(u.get("webapp.video-detail")) {
-            // Already handled but check status
+
             if let Some(code) = wd.get("statusCode").and_then(|v| v.as_i64()) {
                 if code == 10204 {
-                    // IP blocked
+
                     return None;
                 }
                 if code == 10216 || code == 10222 {
-                    // private
+
                     return None;
                 }
             }
         }
-        // Also check __DEFAULT_SCOPE__ webapp.video-detail status
+
         if let Some(obj) = u.as_object() {
             for (k,v) in obj {
                 if k.contains("video-detail") {
@@ -529,7 +517,6 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         }
     }
 
-    // Regex fallback for images if empty
     if images.is_empty() {
         let re_url_list = Regex::new(r#""urlList"\s*:\s*\[(.*?)\]"#).ok()?;
         let mut cand_images: Vec<String> = Vec::new();
@@ -544,7 +531,7 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
                 }
             }
         }
-        // dedup
+
         let mut seen = std::collections::HashSet::new();
         let mut uniq: Vec<String> = Vec::new();
         for u in cand_images {
@@ -570,13 +557,12 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
         }
     }
 
-    // Clean music url
     if let Some(ref mut m) = music_url {
         *m = m.replace("\\u002F", "/");
         if m.starts_with("//") {
             *m = format!("https:{}", m);
         } else if m.starts_with('/') && !m.starts_with("//") {
-            // Could be TikWM style or TikTok path; try tikwm host first
+
             if m.starts_with("/video/") || m.starts_with("/music/") {
                 *m = format!("https://www.tikwm.com{}", m);
             } else {
@@ -584,14 +570,14 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
             }
         }
     }
-    // dedup images
+
     let mut seen = std::collections::HashSet::new();
     let mut uniq_images: Vec<String> = Vec::new();
     for u in images {
         let clean = u.replace("\\u002F", "/");
         if seen.insert(clean.clone()) { uniq_images.push(clean); }
     }
-    // proto relative fix
+
     for img in &mut uniq_images {
         if img.starts_with("//") { *img = format!("https:{}", img); }
     }
@@ -611,15 +597,13 @@ pub async fn extract_web(url: &str) -> Option<SlideInfo> {
 }
 
 pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
-    // yt-dlp behind the scenes - handles /photo -> /video conversion and provides reliable audio URL via its TikTok extractor (uses app API + webpage WAF solver)
-    // TikTok's extractor VALID_URL only matches /video, so convert /photo to /video for yt-dlp
+
     let ytdlp_url = if url.contains("/photo/") {
         url.replace("/photo/", "/video/")
     } else {
         url.to_string()
     };
-    // For vm.tiktok.com short links, resolve first? yt-dlp can handle vm directly, but we already resolved upstream
-    // Use yt-dlp fetched from web like GUI downloaders (auto-download if not in PATH)
+
     let ytdlp_bin = ytdlp::ytdlp_path_async().await;
     let output = tokio::process::Command::new(&ytdlp_bin)
         .arg("--dump-json")
@@ -631,7 +615,7 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
         .ok()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // ytdlp may fail with Unsupported URL for /photo if not converted, or IP blocked
+
         if stderr.contains("IP address is blocked") || stderr.contains("Unsupported URL") {
             eprintln!("{}", stderr.lines().next().unwrap_or("").trim());
         }
@@ -641,12 +625,12 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
     if stdout.trim().is_empty() { return None; }
     let info: Value = serde_json::from_str(&stdout).ok()?;
     let mut music_url: Option<String> = None;
-    // Prefer audio-only formats (slideshow)
+
     if let Some(formats) = info.get("formats").and_then(|v| v.as_array()) {
         for f in formats {
             let vcodec = f.get("vcodec").and_then(|v| v.as_str()).unwrap_or("");
             let acodec = f.get("acodec").and_then(|v| v.as_str()).unwrap_or("");
-            // audio only
+
             if vcodec == "none" && acodec != "none" {
                 if let Some(u) = f.get("url").and_then(|v| v.as_str()) {
                     if u.starts_with("http") {
@@ -656,7 +640,7 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
                 }
             }
         }
-        // Fallback: any format with url containing tiktokcdn and audio
+
         if music_url.is_none() {
             for f in formats {
                 if let Some(u) = f.get("url").and_then(|v| v.as_str()) {
@@ -668,7 +652,7 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
             }
         }
     }
-    // Also try direct url field (for single format)
+
     if music_url.is_none() {
         if let Some(u) = info.get("url").and_then(|v| v.as_str()) {
             if u.starts_with("http") { music_url = Some(u.to_string()); }
@@ -679,7 +663,7 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
     let title = info.get("title").and_then(|v| v.as_str())
         .or(info.get("description").and_then(|v| v.as_str()))
         .unwrap_or("").to_string();
-    // Try to get thumbnails as fallback images (only 1 cover, but better than nothing if TikWM fails)
+
     let mut images: Vec<String> = Vec::new();
     if let Some(thumbs) = info.get("thumbnails").and_then(|v| v.as_array()) {
         for t in thumbs {
@@ -688,11 +672,11 @@ pub async fn extract_ytdlp(url: &str) -> Option<SlideInfo> {
             }
         }
     }
-    // Only return if we have at least music or images; yt-dlp slideshow typically has music but 1 thumbnail
+
     if music_url.is_none() && images.is_empty() { return None; }
-    // For slideshow, we want at least music; images from yt-dlp are insufficient (1 vs 13), but we return for merging
+
     Some(SlideInfo {
-        images, // may be 1 thumbnail; caller will prefer TikWM images
+        images,
         music_url,
         title,
         duration,
@@ -708,7 +692,7 @@ pub fn is_instagram_url(url: &str) -> bool {
 }
 
 fn is_ig_video_slide(e: &Value) -> bool {
-    // mobile API media object: media_type 2 = video, 5 = reel_clip
+
     if let Some(mt) = e.get("media_type").and_then(|v| v.as_i64()) {
         if mt == 2 || mt == 5 {
             return true;
@@ -719,12 +703,11 @@ fn is_ig_video_slide(e: &Value) -> bool {
         .map_or(false, |a| !a.is_empty())
 }
 
-// Collect audio-only URLs (audio_src etc.) from a dumped Instagram JSON tree.
 fn collect_ig_audio(v: &Value, out: &mut Vec<String>, depth: usize) {
     if depth > 40 { return; }
     match v {
         Value::Object(map) => {
-            // Direct audio object form: {"audio": {"audio_src": "...", ...}}
+
             if let Some(ao) = map.get("audio").and_then(|x| x.as_object()) {
                 for key in ["audio_src", "audio_url", "download_audio_url"] {
                     if let Some(s) = ao.get(key).and_then(|x| x.as_str()) {
@@ -773,7 +756,6 @@ fn collect_ig_audio(v: &Value, out: &mut Vec<String>, depth: usize) {
     }
 }
 
-// Pick the highest-resolution video_versions URL (mp4 with muxed audio).
 fn best_ig_video_url(e: &Value) -> Option<String> {
     if let Some(vv) = e.get("video_versions").and_then(|x| x.as_array()) {
         let mut best: Option<(u64, String)> = None;
@@ -797,7 +779,7 @@ fn best_ig_video_url(e: &Value) -> Option<String> {
 }
 
 fn best_ig_candidates(e: &Value) -> Option<String> {
-    // Pick highest-resolution candidate from image_versions2.candidates
+
     if let Some(cands) = e.get("image_versions2")
         .and_then(|v| v.get("candidates"))
         .and_then(|v| v.as_array())
@@ -818,7 +800,7 @@ fn best_ig_candidates(e: &Value) -> Option<String> {
             return Some(u);
         }
     }
-    // display_url fallback (webpage JSON style)
+
     e.get("display_url")
         .or_else(|| e.get("display_src"))
         .and_then(|v| v.as_str())
@@ -839,8 +821,7 @@ fn walk_ig_tree(
     }
     match v {
         Value::Object(map) => {
-            // Metadata from this level first (the post object is usually ALSO the
-            // carousel container, so this must run before the carousel return)
+
             if let Some(cap) = map.get("caption").and_then(|x| x.as_object()) {
                 if let Some(t) = cap.get("text").and_then(|x| x.as_str()) {
                     if !t.trim().is_empty() {
@@ -848,9 +829,7 @@ fn walk_ig_tree(
                     }
                 }
             }
-            // Author username: only trustworthy when attached to a media node, so
-            // it is recorded below in the container/leaf branches instead of here
-            // (likers/commenters/tagged users also carry `user` objects).
+
             if let Some(d) = map.get("video_duration").and_then(|x| x.as_f64()) {
                 durations.push(d);
             }
@@ -861,7 +840,7 @@ fn walk_ig_tree(
                         .and_then(|x| x.get("username")).and_then(|x| x.as_str()) {
                         authors.push(u.to_string());
                     }
-                    // carousel items are processed wholesale; do not descend here
+
                     return;
                 }
             }
@@ -890,12 +869,7 @@ fn walk_ig_tree(
 }
 
 pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
-    // yt-dlp is the only way to access public Instagram posts anonymously (it solves
-    // TikTok-style challenges + impersonates a browser). Concrete downside: yt-dlp's
-    // extractor only emits entries that have *video* formats, so pure-photo slides are
-    // discarded. We work around it via `--write-pages`: yt-dlp dumps the raw GraphQL
-    // response it fetched (which contains carousel_media / image_versions2 for every
-    // slide) and we parse those dumps for the image URLs, ordering, title and duration.
+
     let ytdlp_bin = ytdlp::ytdlp_path_async().await;
     let dump_dir = tempfile::tempdir()?;
     let output = tokio::process::Command::new(&ytdlp_bin)
@@ -974,21 +948,16 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
     };
     let duration = durations.into_iter().fold(0.0_f64, f64::max);
 
-    // Audio detection. Instagram carousels with a soundtrack carry the sound in
-    // a video slide: either a dedicated audio_url (audio_src) or the muxed
-    // audio inside the slide's video_versions mp4. Without this the generated
-    // swipe video silently dropped the audio.
     let mut music_url: Option<String> = None;
     let mut audio_candidates: Vec<String> = Vec::new();
     for v in &parsed_dumps {
         collect_ig_audio(v, &mut audio_candidates, 0);
     }
-    // Prefer a real audio-only URL if one exists.
+
     if let Some(u) = audio_candidates.iter().find(|u| u.starts_with("http")) {
         music_url = Some(u.clone());
     }
-    // Fallback: use the best video_versions mp4 of the first non-muted video
-    // slide (its audio stream is muxed and extracted later downstream).
+
     if music_url.is_none() {
         for s in &slides {
             if is_ig_video_slide(s) {
@@ -1015,7 +984,7 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
     }
     if video_slides > 0 {
         if slides.len() == 1 {
-            // Single reel/video -> download directly (audio muxed)
+
             return Ok(SlideInfo {
                 images: Vec::new(),
                 music_url: None,
@@ -1031,8 +1000,7 @@ pub async fn extract_instagram(url: &str) -> Result<SlideInfo> {
 }
 
 pub async fn extract_instagram_web(url: &str) -> Option<SlideInfo> {
-    // Fallback used when yt-dlp fails (e.g. single-image posts which have no video
-    // formats). Parses the public post page: og:image + all display_url occurrences.
+
     let resolved = resolve_url(url).await;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
@@ -1115,7 +1083,6 @@ pub async fn extract_info(url: &str) -> Result<SlideInfo> {
         bail!("URL must start with http/https");
     }
 
-    // Instagram: photo posts/carousels -> swipe video, reels -> direct download
     if is_instagram_url(original) {
         match extract_instagram(original).await {
             Ok(info) => return Ok(info),
@@ -1135,15 +1102,11 @@ pub async fn extract_info(url: &str) -> Result<SlideInfo> {
         }
     }
 
-    // Use yt-dlp completely behind the scenes (like GUI downloaders fetch yt-dlp from web)
-    // yt-dlp handles WAF, app API, and reliable audio; TikWM/web give full image list
-    // We run all in parallel for speed
     let tikwm_fut = extract_tikwm(original);
     let ytdlp_fut = extract_ytdlp(original);
     let web_fut = extract_web(original);
     let (tikwm_res, ytdlp_res, web_res) = tokio::join!(tikwm_fut, ytdlp_fut, web_fut);
 
-    // Prefer TikWM/web for images (13), supplement music from yt-dlp behind it
     if let Some(mut res) = tikwm_res {
         if !res.images.is_empty() {
             if !is_valid_music_url(&res.music_url) {
@@ -1185,7 +1148,6 @@ pub async fn extract_info(url: &str) -> Result<SlideInfo> {
         }
     }
 
-    // If TikWM/web failed, try yt-dlp (may have 1 cover, but better than nothing)
     if let Some(res) = ytdlp_res {
         if !res.images.is_empty() || res.music_url.is_some() {
             if !res.images.is_empty() {
@@ -1194,7 +1156,6 @@ pub async fn extract_info(url: &str) -> Result<SlideInfo> {
         }
     }
 
-    // Resolve short links (vm.tiktok.com) and retry
     let resolved = resolve_url(original).await;
     if resolved != original {
         let tikwm2 = extract_tikwm(&resolved).await;
@@ -1239,8 +1200,7 @@ mod tests {
     use serde_json::json;
 
     fn carousel_dump() -> Value {
-        // Mirrors the mobile-v1 PolarisMedia object that yt-dlp dumps for an
-        // Instagram carousel containing photos + a video slide with audio.
+
         json!({
             "data": {
                 "xig_polaris_media": {
@@ -1288,7 +1248,6 @@ mod tests {
         let slides = &carousels[0];
         assert_eq!(slides.len(), 2);
 
-        // no dedicated audio-only field -> audio comes from the video slide
         let mut candidates = Vec::new();
         collect_ig_audio(&dump, &mut candidates, 0);
         assert!(candidates.is_empty());
@@ -1296,7 +1255,7 @@ mod tests {
         let video_slide = &slides[1];
         assert!(is_ig_video_slide(video_slide));
         let url = best_ig_video_url(video_slide).unwrap();
-        assert_eq!(url, "https://cdn/high.mp4"); // highest resolution picked
+        assert_eq!(url, "https://cdn/high.mp4");
 
         let mut music_url = candidates.into_iter().next();
         if music_url.is_none() {

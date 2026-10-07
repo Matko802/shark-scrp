@@ -34,77 +34,6 @@ impl CompressProfile {
             strip_metadata: true,
         }
     }
-
-    pub fn tiny() -> Self {
-        Self {
-            name: "Tiny".to_string(),
-            jpeg_quality: 62,
-            png_level: 9,
-            gif_colors: 64,
-            gif_lossy: 80,
-            video_codec: "libx264".to_string(),
-            video_crf: 28,
-            video_preset: "fast".to_string(),
-            video_max_height: 720,
-            audio_codec: "libopus".to_string(),
-            audio_bitrate: "96k".to_string(),
-            strip_metadata: true,
-        }
-    }
-
-    pub fn quality() -> Self {
-        Self {
-            name: "Quality".to_string(),
-            jpeg_quality: 88,
-            png_level: 2,
-            gif_colors: 256,
-            gif_lossy: 0,
-            video_codec: "libx264".to_string(),
-            video_crf: 19,
-            video_preset: "slow".to_string(),
-            video_max_height: 2160,
-            audio_codec: "aac".to_string(),
-            audio_bitrate: "192k".to_string(),
-            strip_metadata: false,
-        }
-    }
-
-    pub fn builtins() -> Vec<Self> {
-        vec![Self::balanced(), Self::tiny(), Self::quality()]
-    }
-}
-
-fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("shark-scrp").join("compress-presets.json"))
-}
-
-pub fn load_all() -> Vec<CompressProfile> {
-    let mut out = CompressProfile::builtins();
-    if let Some(p) = config_path() {
-        if let Ok(data) = std::fs::read(&p) {
-            if let Ok(custom) = serde_json::from_slice::<Vec<CompressProfile>>(&data) {
-                for c in custom {
-                    if !out.iter().any(|b| b.name == c.name) {
-                        out.push(c);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-pub fn save_custom(profiles: &[CompressProfile]) {
-    if let Some(p) = config_path() {
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let builtin_names = ["Balanced", "Tiny", "Quality"];
-        let custom: Vec<_> = profiles.iter().filter(|x| !builtin_names.contains(&x.name.as_str())).collect();
-        if let Ok(data) = serde_json::to_string_pretty(&custom) {
-            let _ = std::fs::write(p, data);
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -112,11 +41,15 @@ pub struct AppSettings {
     pub output_dir: Option<PathBuf>,
     pub keep_originals: bool,
     pub parallel_jobs: usize,
+    pub target_mb: f64,
+    pub target_format: u32,
+    pub target_effort: u32,
+    pub remember_target: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { output_dir: None, keep_originals: true, parallel_jobs: (num_cpus::get().max(2) - 1).min(4) }
+        Self { output_dir: None, keep_originals: true, parallel_jobs: (num_cpus::get().max(2) - 1).min(4), target_mb: 25.0, target_format: 0, target_effort: 1, remember_target: false }
     }
 }
 
@@ -132,6 +65,10 @@ pub fn load_settings() -> AppSettings {
                     output_dir: v.get("output_dir").and_then(|x| x.as_str()).map(PathBuf::from),
                     keep_originals: v.get("keep_originals").and_then(|x| x.as_bool()).unwrap_or(true),
                     parallel_jobs: v.get("parallel_jobs").and_then(|x| x.as_u64()).map(|n| (n as usize).clamp(1, 8)).unwrap_or_else(unwrap_or_default_config),
+                    target_mb: v.get("target_mb").and_then(|x| x.as_f64()).map(|n| n.clamp(0.5, 2000.0)).unwrap_or(25.0),
+                    target_format: v.get("target_format").and_then(|x| x.as_u64()).map(|n| (n as u32).min(8)).unwrap_or(0),
+                    target_effort: v.get("target_effort").and_then(|x| x.as_u64()).map(|n| (n as u32).min(2)).unwrap_or(1),
+                    remember_target: v.get("remember_target").and_then(|x| x.as_bool()).unwrap_or(false),
                 };
             }
         }
@@ -152,6 +89,10 @@ pub fn save_settings(s: &AppSettings) {
             "output_dir": s.output_dir.as_ref().map(|x| x.to_string_lossy().to_string()),
             "keep_originals": s.keep_originals,
             "parallel_jobs": s.parallel_jobs,
+            "target_mb": s.target_mb,
+            "target_format": s.target_format,
+            "target_effort": s.target_effort,
+            "remember_target": s.remember_target,
         });
         let _ = std::fs::write(p, serde_json::to_string_pretty(&v).unwrap_or_default());
     }

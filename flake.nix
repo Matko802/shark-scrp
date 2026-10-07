@@ -60,6 +60,9 @@
             graphene
           ];
           postInstall = ''
+            mkdir -p $out/share/applications $out/share/icons/hicolor/scalable/apps
+            cp ${./assets/applications/io.github.matko802.shark-scrp.desktop} $out/share/applications/
+            cp ${./assets/icons/hicolor/scalable/apps/io.github.matko802.shark-scrp.svg} $out/share/icons/hicolor/scalable/apps/
             wrapProgram $out/bin/shark-scrp \
               --prefix PATH : ${mediaBinPath pkgs} \
               "''${gappsWrapperArgs[@]}"
@@ -115,6 +118,7 @@
             mozjpeg
             efficient-compression-tool
             yt-dlp
+            desktop-file-utils
           ];
           shellHook = ''
             export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}:$XDG_DATA_DIRS

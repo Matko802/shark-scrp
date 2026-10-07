@@ -23,12 +23,6 @@ pub fn show_tools_dialog(settings: Rc<RefCell<AppSettings>>) {
     title.add_css_class("title-4");
     root.append(&title);
 
-    let sub = gtk4::Label::new(Some("FFmpeg video/audio - ImageMagick images - Gifsicle GIF - MozJPEG JPEG - ECT PNG - yt-dlp downloads"));
-    sub.set_wrap(true);
-    sub.set_xalign(0.0);
-    sub.add_css_class("dim-label");
-    root.append(&sub);
-
     for s in &statuses {
         let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
         let name = gtk4::Label::new(Some(s.id.label()));
@@ -41,10 +35,6 @@ pub fn show_tools_dialog(settings: Rc<RefCell<AppSettings>>) {
         row.append(&ver);
         row.append(&badge);
         root.append(&row);
-        let role = gtk4::Label::new(Some(s.id.role()));
-        role.set_xalign(0.0);
-        role.add_css_class("dim-label");
-        root.append(&role);
         root.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
     }
 
@@ -61,11 +51,6 @@ pub fn show_tools_dialog(settings: Rc<RefCell<AppSettings>>) {
     keep.set_active(settings.borrow().keep_originals);
     keep_row.append(&keep);
     root.append(&keep_row);
-
-    let hint = gtk4::Label::new(Some("Nix: add ffmpeg imagemagick gifsicle mozjpeg efficient-compression-tool yt-dlp to your shell or flake. The app also auto-fetches yt-dlp from GitHub into ~/.cache/shark-scrp."));
-    hint.set_wrap(true);
-    hint.add_css_class("dim-label");
-    root.append(&hint);
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_vexpand(true);

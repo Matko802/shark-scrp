@@ -2,6 +2,7 @@ mod app;
 mod compress;
 mod downloader;
 mod extractor;
+mod fetch;
 mod presets;
 mod queue;
 mod tools;

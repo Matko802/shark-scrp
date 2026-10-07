@@ -1,10 +1,7 @@
-pub mod audio;
 pub mod image;
-pub mod video;
+pub mod target;
 
-use anyhow::Result;
 use std::path::{Path, PathBuf};
-use crate::presets::CompressProfile;
 
 #[derive(Debug, Clone)]
 pub struct CompressResult {
@@ -33,11 +30,10 @@ pub fn kind_of(path: &Path) -> &'static str {
     }
 }
 
-pub fn default_output_path(input: &Path, output_dir: Option<&Path>) -> PathBuf {
+pub fn default_output_path_with_ext(input: &Path, output_dir: Option<&Path>, ext: &str) -> PathBuf {
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
-    let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-    let normalized_ext = if ext.eq_ignore_ascii_case("jpeg") { "jpg".to_string() } else { ext.to_lowercase() };
-    let name = format!("{}.compressed.{}", stem, normalized_ext);
+    let normalized = if ext.eq_ignore_ascii_case("jpeg") { "jpg".to_string() } else { ext.to_lowercase() };
+    let name = format!("{}.compressed.{}", stem, normalized);
     if let Some(dir) = output_dir {
         dir.join(name)
     } else if let Some(parent) = input.parent() {
@@ -49,22 +45,4 @@ pub fn default_output_path(input: &Path, output_dir: Option<&Path>) -> PathBuf {
     } else {
         PathBuf::from(name)
     }
-}
-
-pub fn compress_one(input: &Path, output: &Path, profile: &CompressProfile) -> Result<CompressResult> {
-    let before = std::fs::metadata(input).map(|m| m.len()).unwrap_or(0);
-    let kind = kind_of(input);
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
-    }
-    match kind {
-        "image-jpeg" | "image-png" | "image-gif" | "image-other" => image::compress_image(input, output, profile)?,
-        "video" => video::compress_video(input, output, profile)?,
-        "audio" => audio::compress_audio(input, output, profile)?,
-        _ => anyhow::bail!("Unsupported file type: {}", input.display()),
-    }
-    let after = std::fs::metadata(output).map(|m| m.len()).unwrap_or(0);
-    Ok(CompressResult { input: input.to_path_buf(), output: output.to_path_buf(), before, after })
 }

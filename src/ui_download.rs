@@ -24,15 +24,9 @@ pub fn build_download_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     root.set_margin_start(16);
     root.set_margin_end(16);
 
-    let hint = gtk4::Label::new(Some("Paste a TikTok / Instagram / YouTube URL. TikTok slideshows become swipe videos or loose images; everything else goes through yt-dlp."));
-    hint.set_wrap(true);
-    hint.set_xalign(0.0);
-    hint.add_css_class("dim-label");
-    root.append(&hint);
-
     let url_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let entry = gtk4::Entry::new();
-    entry.set_placeholder_text(Some("https://www.tiktok.com/@user/photo/...  or  https://www.youtube.com/watch?v=..."));
+    entry.set_placeholder_text(Some("Paste URL..."));
     entry.set_hexpand(true);
     let paste_btn = gtk4::Button::with_label("Paste");
     let go_btn = gtk4::Button::with_label("Download");
@@ -69,7 +63,7 @@ pub fn build_download_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     adv.set_child(Some(&adv_box));
     root.append(&adv);
 
-    let status = gtk4::Label::new(Some("Idle - paste a link to start."));
+    let status = gtk4::Label::new(Some("Idle"));
     status.set_xalign(0.0);
     status.set_wrap(true);
     root.append(&status);

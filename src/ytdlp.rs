@@ -24,8 +24,7 @@ fn binary_name() -> &'static str {
 }
 
 fn download_url_for_platform(tag: &str) -> String {
-    // Use standalone binary if available, else generic python script
-    // For Linux x86_64: yt-dlp_linux, aarch64: yt-dlp_linux_aarch64, macOS: yt-dlp_macos, windows: yt-dlp.exe
+
     let asset = if cfg!(target_os = "windows") {
         "yt-dlp.exe"
     } else if cfg!(target_arch = "aarch64") && cfg!(target_os = "linux") {
@@ -41,11 +40,11 @@ fn download_url_for_platform(tag: &str) -> String {
 }
 
 pub fn find_system_ytdlp() -> Option<PathBuf> {
-    // Check PATH via `which` equivalent
+
     if let Ok(path) = which::which(binary_name()) {
         return Some(path);
     }
-    // Also check common locations
+
     for p in ["/usr/bin/yt-dlp", "/usr/local/bin/yt-dlp", "/opt/homebrew/bin/yt-dlp"] {
         let pb = Path::new(p);
         if pb.exists() { return Some(pb.to_path_buf()); }
@@ -108,7 +107,7 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
         file.write_all(&chunk).await?;
     }
     file.flush().await?;
-    // Make executable
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -120,11 +119,11 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
 }
 
 pub async fn ensure_ytdlp() -> Result<PathBuf> {
-    // 1. Check system PATH first (NixOS wraps ffmpeg+yt-dlp, so usually found)
+
     if let Some(sys) = find_system_ytdlp() {
         return Ok(sys);
     }
-    // 2. Check cached binary
+
     let cached = cached_ytdlp_path();
     if cached.exists() && is_executable(&cached) {
         if let Ok(out) = Command::new(&cached).arg("--version").output() {
@@ -134,16 +133,15 @@ pub async fn ensure_ytdlp() -> Result<PathBuf> {
         }
         let _ = std::fs::remove_file(&cached);
     }
-    // 3. Fetch from web (like GUI downloaders)
+
     let tag = match fetch_latest_tag().await {
         Ok(t) => t,
         Err(_) => "latest".to_string(),
     };
     let url = download_url_for_platform(&tag);
-    // If tag == "latest", the URL is https://github.com/yt-dlp/yt-dlp/releases/latest/download/<asset> which redirects
-    // For specific tag, use that tag
+
     let download_url = if tag == "latest" {
-        // Use latest redirect URL with asset name for latest
+
         let asset = if cfg!(target_os = "windows") { "yt-dlp.exe" }
             else if cfg!(target_arch = "aarch64") && cfg!(target_os = "linux") { "yt-dlp_linux_aarch64" }
             else if cfg!(target_os = "linux") { "yt-dlp_linux" }
@@ -154,9 +152,9 @@ pub async fn ensure_ytdlp() -> Result<PathBuf> {
         url
     };
     let cache = cached_ytdlp_path();
-    // Ensure cache dir exists
+
     if let Some(parent) = cache.parent() { std::fs::create_dir_all(parent)?; }
-    // Download with fallback: try standalone binary first, then generic script
+
     match download_file(&download_url, &cache).await {
         Ok(_) => Ok(cache),
         Err(_) => {
@@ -172,12 +170,11 @@ pub async fn ensure_ytdlp() -> Result<PathBuf> {
 }
 
 pub fn ytdlp_command() -> PathBuf {
-    // Synchronous helper for extractor/downloader that need quick path without async fetch
-    // Try system first, then cache, fallback to "yt-dlp" string (will fail but let caller handle)
+
     if let Some(sys) = find_system_ytdlp() { return sys; }
     let cached = cached_ytdlp_path();
     if cached.exists() && is_executable(&cached) { return cached; }
-    // If not found, return "yt-dlp" and let ensure_ytdlp be called async elsewhere
+
     PathBuf::from("yt-dlp")
 }
 

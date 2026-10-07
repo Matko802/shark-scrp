@@ -12,9 +12,7 @@ const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 
 async fn download_via_ytdlp(url: &str, dest: &Path) -> Result<()> {
     let ytdlp_bin = ytdlp::ytdlp_path_async().await;
-    // yt-dlp writes `<out>.part` / `<out>.fdash-*.part` temp files next to the
-    // output. Long multi-byte titles (e.g. Japanese) can overflow the filesystem
-    // name limit, so download via a short temp name first, then move it there.
+
     let parent = dest.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let tmp_name = format!("sharktmp_{}_{}.mp4", std::process::id(), rand::random::<u32>());
     let tmp_path = parent.join(&tmp_name);
@@ -49,7 +47,7 @@ async fn download_via_ytdlp(url: &str, dest: &Path) -> Result<()> {
 }
 
 pub async fn download_direct_video(url: &str, dest: &Path) -> Result<()> {
-    // Download a whole post/reel as one MP4 (video + muxed audio) via yt-dlp
+
     download_via_ytdlp(url, dest).await
 }
 
@@ -66,14 +64,14 @@ pub async fn download_file_with_progress(url: &str, dest: &Path, progress: Optio
     if fixed_url.starts_with("//") {
         fixed_url = format!("https:{}", fixed_url);
     } else if fixed_url.starts_with('/') {
-        // Relative path like /video/music/... -> try tikwm host
+
         if fixed_url.starts_with("/video/") || fixed_url.starts_with("/music/") {
             fixed_url = format!("https://www.tikwm.com{}", fixed_url);
         } else {
             fixed_url = format!("https://www.tiktok.com{}", fixed_url);
         }
     }
-    // Choose referer based on host
+
     let referer = if fixed_url.contains("cdninstagram.com") || fixed_url.contains("instagram.com") {
         "https://www.instagram.com/"
     } else if fixed_url.contains("tikwm.com") {
@@ -177,10 +175,10 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
     let dest = tmpdir.join(format!("audio{}", ext));
     let mut candidates = vec![fixed.clone()];
     if fixed.contains("tikwm.com") {
-        // Also try tiktok host as fallback
+
         let alt = fixed.replace("https://www.tikwm.com", "https://www.tiktok.com");
         if alt != fixed { candidates.push(alt); }
-        // Also try without www
+
         let alt2 = fixed.replace("https://www.tikwm.com", "https://tikwm.com");
         if !candidates.contains(&alt2) { candidates.push(alt2); }
     } else if fixed.starts_with("https://www.tiktok.com/video/") {
@@ -201,13 +199,11 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
                     failed_urls.push(url_to_try.to_string());
                     continue;
                 }
-                // Instagram carousels can report a video mp4 (muxed audio) as the
-                // "music" source. Detect a video stream and keep only the audio so
-                // the swipe renderer gets a pure audio file.
+
                 let (has_video, has_audio) = probe_streams(&dest);
                 if has_video {
                     if !has_audio {
-                        // Silent video slide -> no usable music
+
                         failed_urls.push(url_to_try.to_string());
                         continue;
                     }
@@ -225,8 +221,7 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
                             }
                         }
                     }
-                    // Fall back to the full mp4 if stripping failed; mux_audio
-                    // still maps its first audio track.
+
                     return Some(dest.to_string_lossy().to_string());
                 }
                 return Some(dest.to_string_lossy().to_string());
@@ -240,7 +235,6 @@ pub async fn download_audio(music_url: &str, tmpdir: &Path) -> Option<String> {
     None
 }
 
-// Returns (has_video_stream, has_audio_stream) for a media file.
 fn probe_streams(path: &Path) -> (bool, bool) {
     let out = Command::new("ffprobe")
         .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path.to_str().unwrap_or("")])
