@@ -1,8 +1,8 @@
 [package]
 name = "shark-scrp"
-version = "1.1.0"
+version = "1.0.0"
 edition = "2021"
-description = "shark-scrp - GTK4 compressor + TikTok slideshow + yt-dlp downloader"
+description = "TikTok slideshow downloader → swipe video (TikTok-identical, no loop) - Rust"
 license = "MIT"
 
 [[bin]]
@@ -10,13 +10,7 @@ name = "shark-scrp"
 path = "src/main.rs"
 
 [dependencies]
-gtk4 = { version = "0.9" }
-adw = { package = "libadwaita", version = "0.7", features = ["v1_4"] }
-gio = { version = "0.20" }
-glib = { version = "0.20" }
-gdk4 = { version = "0.9" }
-gdk-pixbuf = { version = "0.20" }
-
+clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.38", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -25,6 +19,7 @@ regex = "1.10"
 image = { version = "0.25", features = ["jpeg", "png"] }
 imageproc = "0.25"
 tempfile = "3.10"
+indicatif = "0.17"
 anyhow = "1.0"
 futures-util = "0.3"
 base64 = "0.22"
@@ -33,8 +28,3 @@ rand = "0.8"
 url = "2.5"
 dirs = "5.0"
 which = "6.0"
-humansize = "2.1"
-mime_guess = "2.0"
-num_cpus = "1.16"
-rfd = { version = "0.15" }
-open = "5.3"

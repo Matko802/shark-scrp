@@ -1,5 +1,5 @@
 {
-  description = "shark-scrp - GTK4 compressor + TikTok slideshow + yt-dlp downloader";
+  description = "shark-scrp - TikTok slideshow / Instagram carousel downloader -> TikTok-style swipe video";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -12,20 +12,11 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      mediaBinPath = pkgs: pkgs.lib.makeBinPath [
-        pkgs.ffmpeg
-        pkgs.imagemagick
-        pkgs.gifsicle
-        pkgs.mozjpeg
-        pkgs.efficient-compression-tool
-        pkgs.yt-dlp
-      ];
-
       shark-scrp =
         { pkgs }:
         pkgs.rustPlatform.buildRustPackage {
           pname = "shark-scrp";
-          version = "1.1.0";
+          version = "1.0.0";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
             filter = path: type:
@@ -43,34 +34,17 @@
               && !(pkgs.lib.hasSuffix ".mp4" b);
           };
           cargoLock.lockFile = ./Cargo.lock;
-          nativeBuildInputs = with pkgs; [
-            makeWrapper
-            wrapGAppsHook4
-            pkg-config
-            glib
-            gobject-introspection
-          ];
-          buildInputs = with pkgs; [
-            gtk4
-            libadwaita
-            glib
-            pango
-            cairo
-            gdk-pixbuf
-            graphene
-          ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          # Wrap binary so ffmpeg/ffprobe + yt-dlp are in PATH at runtime
+          # (video.rs spawns ffmpeg/ffprobe, extractor.rs spawns yt-dlp)
           postInstall = ''
-            mkdir -p $out/share/applications $out/share/icons/hicolor/scalable/apps
-            cp ${./assets/applications/io.github.matko802.shark-scrp.desktop} $out/share/applications/
-            cp ${./assets/icons/hicolor/scalable/apps/io.github.matko802.shark-scrp.svg} $out/share/icons/hicolor/scalable/apps/
             wrapProgram $out/bin/shark-scrp \
-              --prefix PATH : ${mediaBinPath pkgs} \
-              "''${gappsWrapperArgs[@]}"
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.ffmpeg pkgs.yt-dlp ]}
           '';
           doCheck = false;
           meta = {
             mainProgram = "shark-scrp";
-            description = "shark-scrp - GTK4 compressor + TikTok slideshow + yt-dlp downloader";
+            description = "TikTok slideshow / Instagram carousel downloader -> TikTok-style swipe video";
             homepage = "https://github.com/Matko802/shark-scrp";
             license = pkgs.lib.licenses.mit;
             platforms = pkgs.lib.platforms.linux;
@@ -103,26 +77,9 @@
             cargo
             clippy
             rustfmt
-            pkg-config
-            glib
-            gtk4
-            libadwaita
-            pango
-            cairo
-            gdk-pixbuf
-            graphene
-            gobject-introspection
             ffmpeg
-            imagemagick
-            gifsicle
-            mozjpeg
-            efficient-compression-tool
             yt-dlp
-            desktop-file-utils
           ];
-          shellHook = ''
-            export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}:$XDG_DATA_DIRS
-          '';
         });
     };
 }

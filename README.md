@@ -2,44 +2,52 @@
 
 # shark-scrp
 
-GTK4 + libadwaita **compressor platform** with **TikTok slideshow** and **yt-dlp downloader** built in.
-Overengineered inside, one-button simple outside.
+Turns TikTok **photo slideshows** and **Instagram posts / carousels / reels** into a TikTok-style swipe video — no loop, no repetition.
 
 </div>
 
-## Tabs
+## Features
 
-- **Compress** — add files or paste a URL, pick format/effort, hit Compress (target size lives in Settings).
-  - Target sizes: 8 / 10 / 25 / 50 / 100 / 500 MB or custom, set in Settings with Remember choice
-  - Output formats: Auto, MP4, WebM, MP3, Opus, JPEG, PNG, WebP, GIF, each with an efficiency note
-  - Effort levels: Fast / Balanced / Thorough (quality-time tradeoff, Thorough uses two-pass video)
-  - Auto-fit engine: tries a high-quality encode first, then searches downward (quality binary search for images, Auto-Rez bitrate + resolution ladder for video, bitrate ladder for audio) so the result is the best quality that fits
-  - Backends: JPEG → MozJPEG, PNG → ECT, GIF → Gifsicle, other images → ImageMagick, video/audio → FFmpeg
-  - 2 GiB input limit, per-job progress, before → after + % saved, per-file Open button
-- **Download** — one URL field:
-  - TikTok / Instagram → slideshow video (swipe, music muxed), images-only folder, or direct video
-  - YouTube / anything else → yt-dlp best-video or audio-only
-  - Paste button, open-folder button, mode + transition/FPS/no-music options (defaults in Settings, always remembered)
-- **Settings** — output folder, target-size + effort defaults, download defaults, parallel-jobs / keep-originals (all auto-saved), live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp`, small Reset button with confirmation
+- TikTok-like smooth swipe animation (easeOutCubic, seamless, no gaps)
+- original audio auto-downloaded and muxed, video length synced to music
+- Instagram carousels with a soundtrack are supported
+- pure Rust, single binary — `ffmpeg` + `yt-dlp` used behind the scenes
 
-Presets live in `~/.config/shark-scrp/compress-presets.json`, settings in `settings.json`.
+## Building
 
-## Run
+Not on Nix? Requires `cargo` + `ffmpeg`/`ffprobe` + `yt-dlp`:
+
+```sh
+git clone https://github.com/Matko802/shark-scrp.git
+cd shark-scrp
+cargo build --release
+./target/release/shark-scrp <url>
+```
+
+On NixOS or any distro with Nix, just:
 
 ```sh
 nix run github:Matko802/shark-scrp
 ```
 
-Dev:
+## Usage
 
 ```sh
-nix develop
-cargo test
-cargo run
+shark-scrp "https://www.tiktok.com/@user/photo/123..."
+shark-scrp "https://www.instagram.com/reel/DceabVZT3sN/"
+shark-scrp URL -o out.mp4       # custom output
+shark-scrp URL --no-music       # silent video
+shark-scrp -v                   # version
 ```
 
-Needs on Nix: `gtk4 libadwaita ffmpeg imagemagick gifsicle mozjpeg efficient-compression-tool yt-dlp`.
-`yt-dlp` is also auto-fetched from GitHub into `~/.cache/shark-scrp` if missing.
+| Flag              | Default     | Meaning                        |
+| ----------------- | ----------- | ------------------------------ |
+| `-o, --output`    | title name  | output mp4 path                |
+| `--trans`         | `0.6`       | swipe transition seconds       |
+| `--fps`           | `30`        | video fps                      |
+| `--width`/`--height` | `1080`x`1920` | resolution              |
+| `--no-music`      |             | skip audio                     |
+| `--keep-temp`     |             | keep downloaded images/audio   |
 
 ## Nix flakes
 
