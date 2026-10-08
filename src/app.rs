@@ -22,10 +22,6 @@ fn build_window(app: &adw::Application) {
     window.set_default_size(980, 680);
 
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("shark-scrp", "compress - tiktok - yt-dlp")));
-
-    let tools_btn = gtk4::Button::with_label("Tools");
-    header.pack_end(&tools_btn);
 
     let stack = adw::ViewStack::new();
     let switcher = adw::ViewSwitcher::new();
@@ -35,8 +31,10 @@ fn build_window(app: &adw::Application) {
 
     let compress_page = crate::ui_compress::build_compress_page(store.clone(), settings.clone());
     let download_page = crate::ui_download::build_download_page(settings.clone());
+    let settings_page = crate::ui_prefs::build_settings_page(settings.clone());
     stack.add_titled_with_icon(&compress_page, Some("compress"), "Compress", "document-save-symbolic");
     stack.add_titled_with_icon(&download_page, Some("download"), "Download", "folder-download-symbolic");
+    stack.add_titled_with_icon(&settings_page, Some("settings"), "Settings", "emblem-system-symbolic");
 
     let toolbar_view = adw::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
@@ -48,13 +46,6 @@ fn build_window(app: &adw::Application) {
         let banner = adw::Banner::new(&format!("Missing tools: {}", missing.join(", ")));
         banner.set_revealed(true);
         toolbar_view.add_top_bar(&banner);
-    }
-
-    {
-        let settings_c = settings.clone();
-        tools_btn.connect_clicked(move |_| {
-            crate::ui_prefs::show_tools_dialog(settings_c.clone());
-        });
     }
 
     window.set_content(Some(&toolbar_view));

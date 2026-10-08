@@ -45,11 +45,15 @@ pub struct AppSettings {
     pub target_format: u32,
     pub target_effort: u32,
     pub remember_target: bool,
+    pub download_mode: u32,
+    pub transition_s: f64,
+    pub fps: u32,
+    pub no_music: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { output_dir: None, keep_originals: true, parallel_jobs: (num_cpus::get().max(2) - 1).min(4), target_mb: 25.0, target_format: 0, target_effort: 1, remember_target: false }
+        Self { output_dir: None, keep_originals: true, parallel_jobs: (num_cpus::get().max(2) - 1).min(4), target_mb: 25.0, target_format: 0, target_effort: 1, remember_target: false, download_mode: 0, transition_s: 0.6, fps: 30, no_music: false }
     }
 }
 
@@ -69,6 +73,10 @@ pub fn load_settings() -> AppSettings {
                     target_format: v.get("target_format").and_then(|x| x.as_u64()).map(|n| (n as u32).min(8)).unwrap_or(0),
                     target_effort: v.get("target_effort").and_then(|x| x.as_u64()).map(|n| (n as u32).min(2)).unwrap_or(1),
                     remember_target: v.get("remember_target").and_then(|x| x.as_bool()).unwrap_or(false),
+                    download_mode: v.get("download_mode").and_then(|x| x.as_u64()).map(|n| (n as u32).min(4)).unwrap_or(0),
+                    transition_s: v.get("transition_s").and_then(|x| x.as_f64()).map(|n| n.clamp(0.2, 1.5)).unwrap_or(0.6),
+                    fps: v.get("fps").and_then(|x| x.as_u64()).map(|n| (n as u32).clamp(15, 60)).unwrap_or(30),
+                    no_music: v.get("no_music").and_then(|x| x.as_bool()).unwrap_or(false),
                 };
             }
         }
@@ -93,6 +101,10 @@ pub fn save_settings(s: &AppSettings) {
             "target_format": s.target_format,
             "target_effort": s.target_effort,
             "remember_target": s.remember_target,
+            "download_mode": s.download_mode,
+            "transition_s": s.transition_s,
+            "fps": s.fps,
+            "no_music": s.no_music,
         });
         let _ = std::fs::write(p, serde_json::to_string_pretty(&v).unwrap_or_default());
     }

@@ -19,8 +19,8 @@ Overengineered inside, one-button simple outside.
 - **Download** — one URL field:
   - TikTok / Instagram → slideshow video (swipe, music muxed), images-only folder, or direct video
   - YouTube / anything else → yt-dlp best-video or audio-only
-  - Paste button, output folder, transition/FPS/no-music options
-- **Tools dialog** — live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp` + parallel-jobs / keep-originals settings
+  - Paste button, open-folder button, mode + transition/FPS/no-music options (defaults in Settings, always remembered)
+- **Settings** — output folder, compress defaults, download defaults, parallel-jobs / keep-originals (all auto-saved), live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp`, small Reset button with confirmation
 
 Presets live in `~/.config/shark-scrp/compress-presets.json`, settings in `settings.json`.
 

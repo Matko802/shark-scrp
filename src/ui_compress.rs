@@ -108,13 +108,11 @@ pub fn build_compress_page(
     url_entry.set_placeholder_text(Some("Paste URL..."));
     url_entry.set_hexpand(true);
     let fetch_btn = gtk4::Button::with_label("Fetch");
-    let out_btn = gtk4::Button::with_label("Output folder");
     let go_btn = gtk4::Button::with_label("Compress");
     go_btn.add_css_class("suggested-action");
     files_row.append(&add_btn);
     files_row.append(&url_entry);
     files_row.append(&fetch_btn);
-    files_row.append(&out_btn);
     files_row.append(&go_btn);
     root.append(&files_row);
 
@@ -287,12 +285,15 @@ pub fn build_compress_page(
     {
         let settings_c = settings.clone();
         let out_label_c = out_label.clone();
-        out_btn.connect_clicked(move |_| {
-            if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                settings_c.borrow_mut().output_dir = Some(dir.clone());
-                crate::presets::save_settings(&settings_c.borrow());
-                out_label_c.set_text(&format!("Output: {}", dir.display()));
+        glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+            let text = match settings_c.borrow().output_dir.clone() {
+                Some(dir) => format!("Output: {}", dir.display()),
+                None => "Output: same folder as input (change in Settings)".to_string(),
+            };
+            if out_label_c.text().as_str() != text {
+                out_label_c.set_text(&text);
             }
+            glib::ControlFlow::Continue
         });
     }
 
@@ -418,8 +419,9 @@ pub fn build_compress_page(
         });
     }
 
-    if let Some(dir) = settings.borrow().output_dir.clone() {
-        out_label.set_text(&format!("Output: {}", dir.display()));
+    match settings.borrow().output_dir.clone() {
+        Some(dir) => out_label.set_text(&format!("Output: {}", dir.display())),
+        None => out_label.set_text("Output: same folder as input (change in Settings)"),
     }
 
     root.into()

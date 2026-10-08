@@ -39,22 +39,21 @@ pub fn build_download_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     let opt_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let modes = ["Auto", "TikTok images only", "TikTok slideshow video", "Best video (yt-dlp)", "Audio only (yt-dlp)"];
     let mode_drop = gtk4::DropDown::from_strings(&modes);
-    mode_drop.set_selected(0);
-    let out_btn = gtk4::Button::with_label("Output folder");
+    mode_drop.set_selected(settings.borrow().download_mode);
     let open_btn = gtk4::Button::with_label("Open folder");
     opt_row.append(&gtk4::Label::new(Some("Mode:")));
     opt_row.append(&mode_drop);
-    opt_row.append(&out_btn);
     opt_row.append(&open_btn);
     root.append(&opt_row);
 
     let adv = gtk4::Expander::new(Some("Video options (slideshow)"));
     let adv_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
     let trans = gtk4::SpinButton::with_range(0.2, 1.5, 0.1);
-    trans.set_value(0.6);
+    trans.set_value(settings.borrow().transition_s);
     let fps = gtk4::SpinButton::with_range(15.0, 60.0, 1.0);
-    fps.set_value(30.0);
+    fps.set_value(settings.borrow().fps as f64);
     let no_music = gtk4::CheckButton::with_label("No music");
+    no_music.set_active(settings.borrow().no_music);
     adv_box.append(&gtk4::Label::new(Some("Transition s:")));
     adv_box.append(&trans);
     adv_box.append(&gtk4::Label::new(Some("FPS:")));
@@ -97,14 +96,31 @@ pub fn build_download_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     }
 
     {
-        let settings_c = settings.clone();
-        let out_label_c = out_label.clone();
-        out_btn.connect_clicked(move |_| {
-            if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                settings_c.borrow_mut().output_dir = Some(dir.clone());
-                crate::presets::save_settings(&settings_c.borrow());
-                out_label_c.set_text(&format!("Output: {}", dir.display()));
-            }
+        let sc = settings.clone();
+        mode_drop.connect_selected_notify(move |d| {
+            sc.borrow_mut().download_mode = d.selected();
+            crate::presets::save_settings(&sc.borrow());
+        });
+    }
+    {
+        let sc = settings.clone();
+        trans.connect_value_changed(move |s| {
+            sc.borrow_mut().transition_s = s.value().clamp(0.2, 1.5);
+            crate::presets::save_settings(&sc.borrow());
+        });
+    }
+    {
+        let sc = settings.clone();
+        fps.connect_value_changed(move |s| {
+            sc.borrow_mut().fps = (s.value() as u32).clamp(15, 60);
+            crate::presets::save_settings(&sc.borrow());
+        });
+    }
+    {
+        let sc = settings.clone();
+        no_music.connect_toggled(move |c| {
+            sc.borrow_mut().no_music = c.is_active();
+            crate::presets::save_settings(&sc.borrow());
         });
     }
 
@@ -155,8 +171,23 @@ pub fn build_download_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
         let _ = bar;
     }
 
-    if let Some(dir) = settings.borrow().output_dir.clone() {
-        out_label.set_text(&format!("Output: {}", dir.display()));
+    match settings.borrow().output_dir.clone() {
+        Some(dir) => out_label.set_text(&format!("Output: {}", dir.display())),
+        None => out_label.set_text("Output: current folder (change in Settings)"),
+    }
+    {
+        let settings_c = settings.clone();
+        let out_label_c = out_label.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+            let text = match settings_c.borrow().output_dir.clone() {
+                Some(dir) => format!("Output: {}", dir.display()),
+                None => "Output: current folder (change in Settings)".to_string(),
+            };
+            if out_label_c.text().as_str() != text {
+                out_label_c.set_text(&text);
+            }
+            glib::ControlFlow::Continue
+        });
     }
 
     {
