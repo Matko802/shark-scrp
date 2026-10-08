@@ -1,5 +1,5 @@
 {
-  description = "shark-scrp - GTK4 media station: compressor + TikTok slideshow + yt-dlp downloader";
+  description = "shark-scrp - GTK4 compressor + TikTok slideshow + yt-dlp downloader";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -70,7 +70,7 @@
           doCheck = false;
           meta = {
             mainProgram = "shark-scrp";
-            description = "GTK4 compressor + TikTok slideshow + yt-dlp downloader";
+            description = "shark-scrp - GTK4 compressor + TikTok slideshow + yt-dlp downloader";
             homepage = "https://github.com/Matko802/shark-scrp";
             license = pkgs.lib.licenses.mit;
             platforms = pkgs.lib.platforms.linux;

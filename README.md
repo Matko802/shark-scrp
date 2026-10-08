@@ -1,6 +1,6 @@
 <div align="center">
 
-# shark-scrp — Shark Media Station
+# shark-scrp
 
 GTK4 + libadwaita **compressor platform** with **TikTok slideshow** and **yt-dlp downloader** built in.
 Overengineered inside, one-button simple outside.

@@ -18,11 +18,11 @@ fn build_window(app: &adw::Application) {
     let settings: Rc<RefCell<presets::AppSettings>> = Rc::new(RefCell::new(presets::load_settings()));
 
     let window = adw::ApplicationWindow::new(app);
-    window.set_title(Some("Shark Media Station"));
+    window.set_title(Some("shark-scrp"));
     window.set_default_size(980, 680);
 
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("Shark Media Station", "compress - tiktok - yt-dlp")));
+    header.set_title_widget(Some(&adw::WindowTitle::new("shark-scrp", "compress - tiktok - yt-dlp")));
 
     let tools_btn = gtk4::Button::with_label("Tools");
     header.pack_end(&tools_btn);

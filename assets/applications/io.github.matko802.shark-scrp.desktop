@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Shark Media Station
+Name=shark-scrp
 GenericName=Media compressor and downloader
 Comment=Compress images, video and audio to a target size; download TikTok slideshows and online videos
 Exec=shark-scrp
