@@ -9,8 +9,8 @@ Overengineered inside, one-button simple outside.
 
 ## Tabs
 
-- **Compress** — add files or paste a URL, pick a target size, hit Compress.
-  - Target sizes: 8 / 10 / 25 / 50 / 100 / 500 MB or custom, with Remember choice
+- **Compress** — add files or paste a URL, pick format/effort, hit Compress (target size lives in Settings).
+  - Target sizes: 8 / 10 / 25 / 50 / 100 / 500 MB or custom, set in Settings with Remember choice
   - Output formats: Auto, MP4, WebM, MP3, Opus, JPEG, PNG, WebP, GIF, each with an efficiency note
   - Effort levels: Fast / Balanced / Thorough (quality-time tradeoff, Thorough uses two-pass video)
   - Auto-fit engine: tries a high-quality encode first, then searches downward (quality binary search for images, Auto-Rez bitrate + resolution ladder for video, bitrate ladder for audio) so the result is the best quality that fits
@@ -20,7 +20,7 @@ Overengineered inside, one-button simple outside.
   - TikTok / Instagram → slideshow video (swipe, music muxed), images-only folder, or direct video
   - YouTube / anything else → yt-dlp best-video or audio-only
   - Paste button, open-folder button, mode + transition/FPS/no-music options (defaults in Settings, always remembered)
-- **Settings** — output folder, compress defaults, download defaults, parallel-jobs / keep-originals (all auto-saved), live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp`, small Reset button with confirmation
+- **Settings** — output folder, target-size + effort defaults, download defaults, parallel-jobs / keep-originals (all auto-saved), live probe of `ffmpeg ffprobe magick gifsicle cjpeg ect yt-dlp`, small Reset button with confirmation
 
 Presets live in `~/.config/shark-scrp/compress-presets.json`, settings in `settings.json`.
 

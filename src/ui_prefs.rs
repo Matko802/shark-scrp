@@ -53,16 +53,12 @@ pub fn build_settings_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     target_row.append(&gtk4::Label::new(Some("MB")));
     root.append(&target_row);
 
-    let format_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let format_drop = gtk4::DropDown::from_strings(target::OutFormat::all());
-    format_drop.set_selected(settings.borrow().target_format);
+    let effort_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let effort_drop = gtk4::DropDown::from_strings(target::Effort::all());
     effort_drop.set_selected(settings.borrow().target_effort);
-    format_row.append(&gtk4::Label::new(Some("Format:")));
-    format_row.append(&format_drop);
-    format_row.append(&gtk4::Label::new(Some("Effort:")));
-    format_row.append(&effort_drop);
-    root.append(&format_row);
+    effort_row.append(&gtk4::Label::new(Some("Effort:")));
+    effort_row.append(&effort_drop);
+    root.append(&effort_row);
 
     let remember_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     remember_row.append(&gtk4::Label::new(Some("Remember compress choices:")));
@@ -179,13 +175,6 @@ pub fn build_settings_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
     }
     {
         let sc = settings.clone();
-        format_drop.connect_selected_notify(move |d| {
-            sc.borrow_mut().target_format = d.selected();
-            crate::presets::save_settings(&sc.borrow());
-        });
-    }
-    {
-        let sc = settings.clone();
         effort_drop.connect_selected_notify(move |d| {
             sc.borrow_mut().target_effort = d.selected();
             crate::presets::save_settings(&sc.borrow());
@@ -247,7 +236,6 @@ pub fn build_settings_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
         let lc = out_label.clone();
         let td = target_drop.clone();
         let ms = mb_spin.clone();
-        let fd = format_drop.clone();
         let ed = effort_drop.clone();
         let rs = remember_switch.clone();
         let md = mode_drop.clone();
@@ -270,7 +258,6 @@ pub fn build_settings_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
             let lc_c = lc.clone();
             let td_c = td.clone();
             let ms_c = ms.clone();
-            let fd_c = fd.clone();
             let ed_c = ed.clone();
             let rs_c = rs.clone();
             let md_c = md.clone();
@@ -288,7 +275,6 @@ pub fn build_settings_page(settings: Rc<RefCell<AppSettings>>) -> gtk4::Widget {
                     let closest = target::TARGET_PRESETS.iter().position(|p| p.1 > 0.0 && (p.1 - d.target_mb).abs() < 0.5).unwrap_or(6) as u32;
                     td_c.set_selected(closest);
                     ms_c.set_value(d.target_mb);
-                    fd_c.set_selected(d.target_format);
                     ed_c.set_selected(d.target_effort);
                     rs_c.set_active(d.remember_target);
                     md_c.set_selected(d.download_mode);

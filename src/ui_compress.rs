@@ -70,22 +70,6 @@ pub fn build_compress_page(
     root.set_margin_start(16);
     root.set_margin_end(16);
 
-    let target_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let preset_labels: Vec<&str> = target::TARGET_PRESETS.iter().map(|p| p.0).collect();
-    let target_drop = gtk4::DropDown::from_strings(&preset_labels);
-    let mb_spin = gtk4::SpinButton::with_range(1.0, 2000.0, 1.0);
-    mb_spin.set_value(settings.borrow().target_mb);
-    let remember = gtk4::CheckButton::with_label("Remember");
-    remember.set_active(settings.borrow().remember_target);
-    target_row.append(&gtk4::Label::new(Some("Target:")));
-    target_row.append(&target_drop);
-    target_row.append(&mb_spin);
-    target_row.append(&gtk4::Label::new(Some("MB")));
-    target_row.append(&remember);
-    let closest = target::TARGET_PRESETS.iter().position(|p| p.1 > 0.0 && (p.1 - settings.borrow().target_mb).abs() < 0.5).unwrap_or(6) as u32;
-    target_drop.set_selected(closest);
-    root.append(&target_row);
-
     let format_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let format_drop = gtk4::DropDown::from_strings(target::OutFormat::all());
     format_drop.set_selected(settings.borrow().target_format);
@@ -131,10 +115,9 @@ pub fn build_compress_page(
 
     let bottom = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     let clear_btn = gtk4::Button::with_label("Clear finished");
-    let total_label = gtk4::Label::new(Some("Idle"));
-    total_label.set_hexpand(true);
-    total_label.set_xalign(0.0);
-    bottom.append(&total_label);
+    let spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    bottom.append(&spacer);
     bottom.append(&clear_btn);
     root.append(&bottom);
 
@@ -142,15 +125,6 @@ pub fn build_compress_page(
     let pending: Rc<RefCell<Vec<std::path::PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
     let queue: Queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    {
-        let mb_c = mb_spin.clone();
-        target_drop.connect_selected_notify(move |d| {
-            let mb = target::TARGET_PRESETS.get(d.selected() as usize).map(|p| p.1).unwrap_or(-1.0);
-            if mb > 0.0 {
-                mb_c.set_value(mb);
-            }
-        });
-    }
     {
         let eff_c = eff_label.clone();
         format_drop.connect_selected_notify(move |d| {
@@ -162,7 +136,6 @@ pub fn build_compress_page(
         let queue_c = queue.clone();
         let rows_c = rows.clone();
         let store_c = store.clone();
-        let total_c = total_label.clone();
         let list_c = list.clone();
         let pending_c = pending.clone();
         glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
@@ -220,18 +193,13 @@ pub fn build_compress_page(
                                 }
                             }
                         }
-                        let snap = store_c.lock().unwrap().snapshot();
-                        let done = snap.iter().filter(|j| matches!(j.status, JobStatus::Done)).count();
-                        let failed = snap.iter().filter(|j| matches!(j.status, JobStatus::Failed)).count();
-                        total_c.set_text(&format!("{} done, {} failed, {} total", done, failed, snap.len()));
                     }
                     Msg::Fetched(res) => {
                         match res {
                             Ok(path) => {
                                 enqueue_file(path, &store_c, &pending_c, &list_c, &rows_c);
                             }
-                            Err(e) => {
-                                total_c.set_text(&format!("Fetch failed: {}", e));
+                            Err(_) => {
                             }
                         }
                     }
@@ -301,30 +269,23 @@ pub fn build_compress_page(
         let pending_c = pending.clone();
         let store_c = store.clone();
         let settings_c = settings.clone();
-        let target_drop_c = target_drop.clone();
-        let mb_c = mb_spin.clone();
         let format_drop_c = format_drop.clone();
         let effort_drop_c = effort_drop.clone();
-        let remember_c = remember.clone();
         let queue_c = queue.clone();
-        let total_c = total_label.clone();
         go_btn.connect_clicked(move |_| {
             let items: Vec<std::path::PathBuf> = std::mem::take(&mut *pending_c.borrow_mut());
             if items.is_empty() {
                 return;
             }
-            let _ = target_drop_c.selected();
             let spec = target::TargetSpec {
-                bytes: target::mb_to_bytes(mb_c.value()),
+                bytes: target::mb_to_bytes(settings_c.borrow().target_mb),
                 format: target::OutFormat::from_index(format_drop_c.selected()),
                 effort: target::Effort::from_index(effort_drop_c.selected()),
             };
             {
                 let mut s = settings_c.borrow_mut();
-                s.target_mb = mb_c.value();
                 s.target_format = format_drop_c.selected();
                 s.target_effort = effort_drop_c.selected();
-                s.remember_target = remember_c.is_active();
                 if s.remember_target {
                     crate::presets::save_settings(&s);
                 }
@@ -374,9 +335,7 @@ pub fn build_compress_page(
                 });
                 started += 1;
             }
-            if started == 0 {
-                total_c.set_text("Nothing to compress");
-            }
+            let _ = started;
         });
     }
 
